@@ -1,5 +1,7 @@
 # cyclop
 
+[![tests](https://github.com/MMTObservatory/cyclop_linux/actions/workflows/tests.yml/badge.svg)](https://github.com/MMTObservatory/cyclop_linux/actions/workflows/tests.yml)
+
 Linux replacement for Alcor System's Windows-only `SeeingMonitor_Cyclop` software, written for the
 MMTO MiniCyclop (no heater or RS232). It drives the camera directly over GigE Vision, measures
 Polaris' image motion, and publishes seeing straight to redis.
