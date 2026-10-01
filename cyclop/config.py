@@ -42,6 +42,13 @@ DEFAULTS = {
         'data_dir': '~/cyclop_data',
         'save_motion': False,
     },
+    'web': {
+        'enabled': True,
+        'host': '0.0.0.0',            # read-only status pages; use 127.0.0.1 to keep them local
+        'port': 8080,
+        'history_days': 31,           # seeing history loaded from Seeing_Data.txt at startup
+        'history_files': [],          # more Seeing_Data.txt files to plot, e.g. the Windows one
+    },
     'redis': {
         'enabled': True,
         'host': None,                 # None = $REDISHOST or redis.mmto.arizona.edu

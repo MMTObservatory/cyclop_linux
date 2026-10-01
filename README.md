@@ -53,6 +53,23 @@ cyclop replay ~/path/to/*_motion.txt              # reduce Windows motion files 
 
 `systemd/cyclop.service` runs it as a user service.
 
+## Web interface
+
+`cyclop run` also serves read-only status pages at `http://<host>:8080/` (`[web]` in the config,
+`--web-port`, or `--no-web`). They loosely follow the Windows GUI:
+
+- **Capture**: the live camera frame with the star marked, its histogram, saturated-pixel count,
+  brightest pixel, a zoom on the star, and the camera settings;
+- **Status**: UTC/local/sidereal time, Sun elevation, and the last local and zenith seeing and r0;
+- **Plots**: the Windows "Output results" tabs: zenith seeing and flux versus time (1h to 1M,
+  history from `<data_dir>/Seeing_Data.txt` plus any `web.history_files`, such as the Windows
+  software's log), and the star motion and FWHM of the latest centroids;
+- a running log at the bottom.
+
+Tabs can be linked to directly, e.g. `#status` or `#plots/motion`. The page is self-contained (no
+external scripts), so it works without internet access. Everything is controlled from the CLI and
+config file; the web interface never changes anything.
+
 ## Notes
 
 - Only one program can control the camera at a time: stop `SeeingMonitor_Cyclop.exe` before

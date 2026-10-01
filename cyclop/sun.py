@@ -12,6 +12,12 @@ def julian_date(t):
     return t.astimezone(timezone.utc).timestamp() / 86400.0 + 2440587.5
 
 
+def local_sidereal_time(t, longitude_deg):
+    """Local mean sidereal time in hours; longitude is east-positive."""
+    n = julian_date(t) - 2451545.0
+    return ((280.46061837 + 360.98564736629 * n + longitude_deg) % 360.0) / 15.0
+
+
 def sun_altitude(t, latitude_deg, longitude_deg):
     """
     Altitude of the Sun in degrees.

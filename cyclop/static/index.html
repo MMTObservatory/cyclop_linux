@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cyclop seeing monitor</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #172029; --panel2: #1d2833; --line: #2b3a48; --text: #d8e0e8;
+    --dim: #8597a8; --accent: #4fa3e0; --ok: #4cc38a; --warn: #e0b34f; --bad: #e0604f;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 8px 16px;
+           background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  header .site { color: var(--dim); }
+  header .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+          background: var(--panel2); border: 1px solid var(--line); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  .mono { font-family: var(--mono); }
+  nav.tabs { display: flex; gap: 2px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim);
+                    padding: 8px 14px; font: inherit; cursor: pointer; }
+  nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav.tabs.sub { background: none; padding: 0; margin-bottom: 8px; }
+  main { flex: 1; overflow: auto; padding: 12px 16px; min-height: 0; }
+  section.pane[hidden] { display: none; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); margin: 0;
+             padding: 8px 12px 10px; min-width: 0; }
+  legend { color: var(--dim); padding: 0 4px; font-size: 12px; }
+  dl.kv { display: grid; grid-template-columns: max-content auto; gap: 2px 12px; margin: 0; }
+  dl.kv dt { color: var(--dim); } dl.kv dd { margin: 0; font-family: var(--mono); }
+  .big { font-size: 44px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .med { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .small { font-size: 12px; color: var(--dim); }
+  .card { flex: 1 1 260px; text-align: center; }
+  .card .sub { display: flex; gap: 16px; justify-content: center; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  progress { width: 160px; height: 8px; accent-color: var(--accent); }
+  canvas { display: block; }
+  #hist { width: 260px; height: 90px; background: #0a0e12; border: 1px solid var(--line); }
+  #zoom { width: 132px; height: 132px; image-rendering: pixelated; background: #0a0e12; border: 1px solid var(--line); }
+  .imgwrap { margin-top: 12px; background: #000; border: 1px solid var(--line); position: relative; }
+  #frame { width: 100%; height: auto; max-height: 72vh; object-fit: contain; }
+  .imgbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; color: var(--dim); font-size: 12px; }
+  select, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 12px; padding: 2px 6px; }
+  .btn { cursor: pointer; } .btn.active { border-color: var(--accent); color: var(--accent); }
+  .note { color: var(--dim); padding: 24px; text-align: center; }
+  .plotbox { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .plotbox canvas { width: 100%; height: max(220px, calc(76vh - 240px)); cursor: crosshair; }
+  .plotctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .plotctl .gap { width: 12px; }
+  #logpane { height: 24vh; min-height: 80px; resize: vertical; overflow: hidden; display: flex; flex-direction: column;
+             border-top: 1px solid var(--line); background: #0a0e12; }
+  #logpane .bar { display: flex; gap: 12px; align-items: center; padding: 3px 16px; background: var(--panel); color: var(--dim); font-size: 12px; }
+  #log { flex: 1; overflow: auto; margin: 0; padding: 4px 16px; font: 12px/1.45 var(--mono); white-space: pre-wrap; }
+  #log .WARNING { color: var(--warn); } #log .ERROR, #log .CRITICAL { color: var(--bad); }
+  #log .t { color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>cyclop</h1><span class="site" id="site">seeing monitor</span>
+  <span class="pill"><span class="dot" id="statedot"></span><span id="state">connecting…</span></span>
+  <span class="spacer"></span>
+  <span class="pill mono" id="utc">--</span>
+  <span class="pill"><span class="dot" id="conndot"></span><span id="conn">server</span></span>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="capture" class="active">Capture</button>
+  <button data-tab="status">Status</button>
+  <button data-tab="plots">Plots</button>
+</nav>
+
+<main>
+  <!-- Capture --------------------------------------------------------------------------- -->
+  <section class="pane" id="pane-capture">
+    <div class="row">
+      <fieldset>
+        <legend>Seeing measurements</legend>
+        <dl class="kv">
+          <dt>State</dt><dd id="c-state">--</dd>
+          <dt>Measurements</dt><dd><span id="c-n">--</span> / <span id="c-target">--</span></dd>
+          <dt></dt><dd><progress id="c-prog" max="1" value="0"></progress></dd>
+          <dt>Frame rate</dt><dd id="c-fps">--</dd>
+          <dt>Results</dt><dd id="c-results">--</dd>
+        </dl>
+      </fieldset>
+      <fieldset>
+        <legend>Histogram</legend>
+        <canvas id="hist" width="256" height="90"></canvas>
+        <dl class="kv" style="margin-top:4px">
+          <dt>Saturated pixels</dt><dd id="c-sat">--</dd>
+          <dt>Brightest pixel</dt><dd id="c-max">--</dd>
+        </dl>
+      </fieldset>
+      <fieldset>
+        <legend>Star</legend>
+        <div class="row" style="gap:10px">
+          <div>
+            <canvas id="zoom" width="33" height="33"></canvas>
+            <div class="small" style="margin-top:4px">zoom
+              <select id="zoomr"><option value="8">17 px</option><option value="16" selected>33 px</option><option value="32">65 px</option></select>
+            </div>
+          </div>
+          <dl class="kv">
+            <dt>Position</dt><dd id="s-pos">--</dd>
+            <dt>FWHM</dt><dd id="s-fwhm">--</dd>
+            <dt>Peak</dt><dd id="s-peak">--</dd>
+            <dt>Flux</dt><dd id="s-flux">--</dd>
+            <dt>S/N</dt><dd id="s-snr">--</dd>
+            <dt>Saturated</dt><dd id="s-sat">--</dd>
+          </dl>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Camera</legend>
+        <dl class="kv">
+          <dt>Camera</dt><dd id="k-cam">--</dd>
+          <dt>Exposure</dt><dd id="k-exp">--</dd>
+          <dt>Gain</dt><dd id="k-gain">--</dd>
+          <dt>Region</dt><dd id="k-region">--</dd>
+          <dt>Sensor</dt><dd id="k-sensor">--</dd>
+        </dl>
+      </fieldset>
+    </div>
+    <div class="imgbar">
+      <span>display
+        <select id="stretch"><option value="sqrt" selected>sqrt stretch</option><option value="linear">linear stretch</option><option value="raw">raw</option></select>
+      </span>
+      <span id="frameinfo"></span>
+    </div>
+    <div class="imgwrap">
+      <canvas id="frame"></canvas>
+      <div class="note" id="noframe">No camera image (camera idle)</div>
+    </div>
+  </section>
+
+  <!-- Status ---------------------------------------------------------------------------- -->
+  <section class="pane" id="pane-status" hidden>
+    <div class="row">
+      <fieldset class="card" style="text-align:left">
+        <legend>General status</legend>
+        <dl class="kv">
+          <dt>UTC time</dt><dd id="g-utc">--</dd>
+          <dt>Local time</dt><dd id="g-local">--</dd>
+          <dt>Sidereal time</dt><dd id="g-lst">--</dd>
+          <dt>Sun elevation</dt><dd id="g-sun">--</dd>
+          <dt>Status</dt><dd id="g-state" style="font-family:inherit">--</dd>
+          <dt>Running since</dt><dd id="g-start">--</dd>
+          <dt>Redis</dt><dd id="g-redis">--</dd>
+        </dl>
+      </fieldset>
+      <fieldset class="card">
+        <legend>Last measurement (local)</legend>
+        <div class="big" id="l-seeing">--</div>
+        <div class="med" id="l-r0">r0 = --</div>
+        <div class="sub"><span id="l-sx">σx --</span><span id="l-sy">σy --</span></div>
+      </fieldset>
+      <fieldset class="card">
+        <legend>Zenith</legend>
+        <div class="big" id="z-seeing">--</div>
+        <div class="med" id="z-r0">r0 = --</div>
+        <div class="sub"><span id="z-time">--</span></div>
+      </fieldset>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <fieldset style="flex:1">
+        <legend>Last block</legend>
+        <dl class="kv">
+          <dt>Finished</dt><dd id="b-time">--</dd>
+          <dt>Mean flux</dt><dd id="b-flux">--</dd>
+          <dt>Mean FWHM</dt><dd id="b-fwhm">--</dd>
+          <dt>Frame rate</dt><dd id="b-rate">--</dd>
+          <dt>Accepted</dt><dd id="b-acc">--</dd>
+        </dl>
+      </fieldset>
+    </div>
+  </section>
+
+  <!-- Plots ----------------------------------------------------------------------------- -->
+  <section class="pane" id="pane-plots" hidden>
+    <nav class="tabs sub" id="plottabs">
+      <button data-plot="seeing" class="active">Zenith Seeing plot</button>
+      <button data-plot="flux">Flux plot</button>
+      <button data-plot="motion">Latest Seeing Motion Data</button>
+      <button data-plot="fwhm">Latest FWHM Data</button>
+    </nav>
+    <div class="plotbox">
+      <canvas id="plot"></canvas>
+      <div class="plotctl" id="rangectl">
+        <span>range</span>
+        <button class="btn" data-range="3600">1h</button>
+        <button class="btn" data-range="21600">6h</button>
+        <button class="btn active" data-range="43200">12h</button>
+        <button class="btn" data-range="86400">24h</button>
+        <button class="btn" data-range="259200">3D</button>
+        <button class="btn" data-range="604800">1w</button>
+        <button class="btn" data-range="2678400">1M</button>
+        <span class="gap"></span>
+        <label><input type="checkbox" id="autoshift" checked> X axis automatic shift</label>
+        <span class="gap"></span>
+        <span id="plotinfo"></span>
+      </div>
+      <div class="plotctl" id="motionctl" hidden><span id="motioninfo"></span></div>
+    </div>
+  </section>
+</main>
+
+<div id="logpane">
+  <div class="bar"><span>Log</span><label><input type="checkbox" id="logfollow" checked> follow</label>
+    <span class="spacer" style="flex:1"></span><span id="logcount"></span></div>
+  <pre id="log"></pre>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let S = null;                     // last /api/status
+let TZ = "UTC";
+let activeTab = "capture", activePlot = "seeing";
+let hist = null, motion = null, lastResults = -1;
+let plotRange = 43200, plotEnd = null;
+
+// --- formatting -------------------------------------------------------------------------------
+const fmt = (v, d = 2) => (v === null || v === undefined || !isFinite(v)) ? "--" : Number(v).toFixed(d);
+function fmtTime(t, opts = {}) {
+  if (t == null) return "--";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: opts.tz || TZ, hour12: false,
+    year: opts.date === false ? undefined : "numeric", month: opts.date === false ? undefined : "2-digit",
+    day: opts.date === false ? undefined : "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .format(new Date(t * 1000)).replace(",", "");
+}
+function fmtAge(sec) {
+  if (sec < 90) return `${Math.round(sec)} s ago`;
+  if (sec < 5400) return `${Math.round(sec / 60)} min ago`;
+  if (sec < 172800) return `${(sec / 3600).toFixed(1)} h ago`;
+  return `${(sec / 86400).toFixed(1)} d ago`;
+}
+function hms(h) {
+  const s = Math.floor(h * 3600) % 86400;
+  return `${String(Math.floor(s / 3600)).padStart(2, "0")}h${String(Math.floor(s / 60) % 60).padStart(2, "0")}m${String(s % 60).padStart(2, "0")}s`;
+}
+function tzOffset(t) {          // seconds east of UTC for TZ at unix time t
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour12: false,
+    year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" })
+    .formatToParts(new Date(t * 1000)).map(x => [x.type, x.value]));
+  const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second);
+  return Math.round((asUTC - Math.floor(t) * 1000) / 1000);
+}
+
+// --- tabs --------------------------------------------------------------------------------------
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  activeTab = b.dataset.tab;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section.pane").forEach(p => p.hidden = p.id !== "pane-" + activeTab);
+  refreshTab();
+});
+document.querySelectorAll("#plottabs button").forEach(b => b.onclick = () => {
+  activePlot = b.dataset.plot;
+  document.querySelectorAll("#plottabs button").forEach(x => x.classList.toggle("active", x === b));
+  const timePlot = activePlot === "seeing" || activePlot === "flux";
+  $("rangectl").hidden = !timePlot; $("motionctl").hidden = timePlot;
+  refreshTab();
+});
+document.querySelectorAll("#rangectl [data-range]").forEach(b => b.onclick = () => {
+  plotRange = +b.dataset.range;
+  document.querySelectorAll("#rangectl [data-range]").forEach(x => x.classList.toggle("active", x === b));
+  loadHistory();
+});
+$("autoshift").onchange = () => { plotEnd = $("autoshift").checked ? null : Date.now() / 1000; drawPlot(); };
+$("stretch").onchange = () => { frameT = null; loadFrame(); };
+$("zoomr").onchange = () => loadZoom();
+
+function refreshTab() {
+  if (activeTab === "capture") { frameT = null; loadFrame(); loadZoom(); }
+  if (activeTab === "plots") {
+    if (activePlot === "seeing" || activePlot === "flux") loadHistory(); else loadMotion();
+  }
+}
+
+// --- network -----------------------------------------------------------------------------------
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return r.json();
+}
+function setConn(ok) {
+  $("conndot").className = "dot " + (ok ? "ok" : "bad");
+  $("conn").textContent = ok ? "connected" : "no connection";
+}
+
+async function pollStatus() {
+  try { S = await getJSON("api/status"); setConn(true); renderStatus(); }
+  catch (e) { setConn(false); }
+}
+
+// --- status rendering --------------------------------------------------------------------------
+const STATE_SHORT = {
+  "system idle, daytime, no measurements": ["Daytime, idle", ""],
+  "searching for a valid star": ["Searching for star", "warn"],
+  "measurements pending": ["Measuring", "ok"],
+};
+function renderStatus() {
+  TZ = S.site.timezone;
+  $("site").textContent = `${S.site.name || ""} seeing monitor`;
+  const [label, cls] = STATE_SHORT[S.state] || [S.state || "starting", "bad"];
+  $("state").textContent = label; $("statedot").className = "dot " + cls;
+  $("utc").textContent = fmtTime(S.now, { tz: "UTC" }) + " UT";
+
+  // capture
+  const cam = S.camera, fr = S.frame, st = S.star;
+  $("c-state").textContent = label;
+  $("c-n").textContent = S.block.n; $("c-target").textContent = S.block.target;
+  $("c-prog").value = S.block.n / S.block.target;
+  $("c-fps").textContent = S.fps ? `${fmt(S.fps, 1)} fps` : "--";
+  $("c-results").textContent = S.n_results;
+  $("k-cam").textContent = !cam.open ? "closed" : cam.simulated ? "simulated" : "open";
+  const exp = cam.exposure_us;
+  $("k-exp").textContent = `${fmt(exp, 1)} µs (1/${Math.round(1e6 / exp)} s)`;
+  $("k-gain").textContent = `${fmt(cam.gain, 2)} dB`;
+  $("k-region").textContent = cam.region ? `${cam.region[2]}×${cam.region[3]} @ ${cam.region[0]},${cam.region[1]}` : "--";
+  $("k-sensor").textContent = cam.sensor ? `${cam.sensor[0]}×${cam.sensor[1]}` : "--";
+  if (fr) {
+    $("c-sat").textContent = fr.n_saturated;
+    $("c-sat").style.color = fr.n_saturated >= 3 ? "var(--bad)" : "";
+    $("c-max").textContent = `${fr.max} @ X=${fr.max_xy[0]} Y=${fr.max_xy[1]}`;
+    drawHist(fr.histogram);
+  } else { $("c-sat").textContent = "--"; $("c-max").textContent = "--"; drawHist(null); }
+  const fresh = st && fr && Math.abs(st.t - fr.t) < 5;
+  $("s-pos").textContent = st ? `X=${fmt(st.x, 1)} Y=${fmt(st.y, 1)}` : "--";
+  $("s-fwhm").textContent = st ? `${fmt(st.fwhm, 2)} px` : "--";
+  $("s-peak").textContent = st ? fmt(st.peak, 0) : "--";
+  $("s-flux").textContent = st ? fmt(st.flux, 0) : "--";
+  $("s-snr").textContent = st ? fmt(st.snr, 0) : "--";
+  $("s-sat").textContent = st ? st.n_saturated : "--";
+  document.querySelectorAll("#pane-capture dd[id^=s-]").forEach(e => e.style.opacity = fresh ? 1 : .5);
+
+  // status
+  $("g-utc").textContent = fmtTime(S.now, { tz: "UTC" });
+  $("g-local").textContent = `${fmtTime(S.now)} (${TZ})`;
+  $("g-lst").textContent = hms(S.lst_hours);
+  $("g-sun").textContent = `${fmt(S.sun_alt, 2)}°  (limit ${fmt(S.site.max_sun_alt, 0)}°)`;
+  $("g-sun").style.color = S.sun_alt <= S.site.max_sun_alt ? "var(--ok)" : "var(--warn)";
+  $("g-state").textContent = S.state || "--";
+  $("g-start").textContent = fmtTime(S.started);
+  $("g-redis").textContent = !S.redis ? "disabled" : S.redis.error ? `error: ${S.redis.error}`
+    : S.redis.ok ? `updated ${fmtAge(S.now - S.redis.ok)}` : "no update yet";
+  const L = S.last_accepted;
+  $("l-seeing").textContent = L ? `${fmt(L.local)} "` : "--";
+  $("l-r0").textContent = L ? `r0 = ${fmt(L.r0_local, 1)} mm` : "r0 = --";
+  $("l-sx").textContent = L ? `σx = ${fmt(L.sigma_x, 3)} px` : "σx --";
+  $("l-sy").textContent = L ? `σy = ${fmt(L.sigma_y, 3)} px` : "σy --";
+  $("z-seeing").textContent = L ? `${fmt(L.zenith)} "` : "--";
+  $("z-r0").textContent = L ? `r0 = ${fmt(L.r0, 1)} mm` : "r0 = --";
+  $("z-time").textContent = L ? `${fmtTime(L.time)} · ${fmtAge(S.now - L.time)}` : "no measurement this session";
+  const B = S.last;
+  $("b-time").textContent = B ? `${fmtTime(B.time)} (${fmtAge(S.now - B.time)})` : "--";
+  $("b-flux").textContent = B ? `${fmt(B.flux, 0)} ADU` : "--";
+  $("b-fwhm").textContent = B ? `${fmt(B.fwhm, 2)} px` : "--";
+  $("b-rate").textContent = B ? `${fmt(B.rate, 1)} fps` : "--";
+  $("b-acc").textContent = !B ? "--" : B.accepted ? "yes"
+    : `no — zenith seeing ${fmt(B.zenith)}" above the ${fmt(S.max_zenith_seeing, 1)}" limit`;
+
+  if (activeTab === "capture" && (!fr || fr.t !== frameT)) { loadFrame(); loadZoom(); }
+  if (activeTab === "plots" && S.n_results !== lastResults && (activePlot === "seeing" || activePlot === "flux")) loadHistory();
+  if (activeTab === "plots" && !(activePlot === "seeing" || activePlot === "flux")) drawPlot();
+}
+
+function drawHist(h) {
+  const c = $("hist"), g = c.getContext("2d");
+  g.fillStyle = "#0a0e12"; g.fillRect(0, 0, c.width, c.height);
+  if (!h) return;
+  const lmax = Math.log10(Math.max(...h) + 1);
+  for (let i = 0; i < 256; i++) {
+    if (!h[i]) continue;
+    const v = Math.log10(h[i] + 1) / lmax * (c.height - 2);
+    g.fillStyle = i >= 255 ? "#e0604f" : i > 200 ? "#e0b34f" : "#4fa3e0";
+    g.fillRect(i, c.height - v, 1, v);
+  }
+}
+
+// --- camera images ---------------------------------------------------------------------------
+let frameT = null, frameBusy = false, zoomBusy = false;
+async function loadFrame() {
+  if (activeTab !== "capture" || frameBusy) return;
+  if (!S || !S.frame) { $("frame").hidden = true; $("noframe").hidden = false;
+    $("noframe").textContent = S && S.state === "system idle, daytime, no measurements"
+      ? "No camera image: daytime, camera closed" : "No camera image yet"; $("frameinfo").textContent = ""; return; }
+  frameBusy = true;
+  try {
+    const fr = S.frame, st = S.star;
+    const r = await fetch(`api/frame.png?stretch=${$("stretch").value}&t=${fr.t}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const bin = +(r.headers.get("X-Bin") || 1);
+    const bmp = await createImageBitmap(await r.blob());
+    const c = $("frame"), g = c.getContext("2d");
+    c.width = bmp.width; c.height = bmp.height;
+    g.drawImage(bmp, 0, 0);
+    if (st && Math.abs(st.t - fr.t) < 5) {
+      const x = (st.x - fr.region[0] + .5) / bin, y = (st.y - fr.region[1] + .5) / bin;
+      const rad = Math.max(8, 10 / bin * 1.5), lw = Math.max(1.5, c.width / 600);
+      g.strokeStyle = "#4fa3e0"; g.lineWidth = lw;
+      g.beginPath(); g.arc(x, y, rad, 0, 2 * Math.PI); g.stroke();
+      g.font = `${Math.round(Math.max(12, c.width / 45))}px ${getComputedStyle(document.body).getPropertyValue("--mono")}`;
+      g.fillStyle = "#4fa3e0";
+      g.fillText(`OK ${st.x.toFixed(1)},${st.y.toFixed(1)} | ${fmt(st.fwhm, 1)}`, x + rad + 4, y + rad + 12);
+    }
+    $("frame").hidden = false; $("noframe").hidden = true;
+    frameT = fr.t;
+    $("frameinfo").textContent = `${fr.width}×${fr.height} frame at ${fmtTime(fr.t, { date: false })}` +
+      (bin > 1 ? `, shown binned ${bin}×${bin} (max)` : "") + `, median ${fmt(fr.median, 0)} ADU`;
+  } catch (e) { /* keep the previous image */ }
+  finally { frameBusy = false; }
+}
+async function loadZoom() {
+  if (activeTab !== "capture" || zoomBusy || !S || !S.frame) return;
+  zoomBusy = true;
+  try {
+    const r = await fetch(`api/zoom.png?r=${$("zoomr").value}&t=${S.frame.t}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const bmp = await createImageBitmap(await r.blob());
+    const c = $("zoom"), g = c.getContext("2d");
+    c.width = bmp.width; c.height = bmp.height;
+    g.drawImage(bmp, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height);
+    for (let i = 0; i < d.data.length; i += 4) if (d.data[i] >= 255) { d.data[i + 1] = 40; d.data[i + 2] = 40; }
+    g.putImageData(d, 0, 0);       // saturated pixels in red, as in the Windows zoom window
+  } catch (e) { }
+  finally { zoomBusy = false; }
+}
+
+// --- plots ---------------------------------------------------------------------------------------
+async function loadHistory() {
+  if (activeTab !== "plots") return;
+  try {
+    const days = Math.max(1, Math.ceil(plotRange / 86400) + 1);
+    hist = await getJSON(`api/history?days=${days}`);
+    lastResults = S ? S.n_results : -1;
+    drawPlot();
+  } catch (e) { }
+}
+async function loadMotion() {
+  if (activeTab !== "plots") return;
+  try { motion = await getJSON("api/motion"); drawPlot(); } catch (e) { }
+}
+
+function niceStep(span, n) {
+  const raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+}
+const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800];
+
+function rollingMedian(t, y, half, gap) {
+  const out = [];
+  for (let i = 0; i < y.length; i++) {
+    const w = [];
+    for (let j = Math.max(0, i - half); j <= Math.min(y.length - 1, i + half); j++)
+      if (Math.abs(t[j] - t[i]) < gap) w.push(y[j]);
+    w.sort((a, b) => a - b);
+    out.push(w[w.length >> 1]);
+  }
+  return out;
+}
+
+const PLOT = {};   // geometry of the last drawn plot, for the hover readout
+function plotCanvas(c, o) {
+  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.body), mono = css.getPropertyValue("--mono");
+  const L = 64, R = 16, T = 30, B = 44, pw = W - L - R, ph = H - T - B;
+  let { xmin, xmax, ymin, ymax } = o;
+  const pts = o.series.flatMap(s => s.y.map((v, i) => [s.x[i], v])).filter(p => p[0] >= xmin && p[0] <= xmax && isFinite(p[1]));
+  if (ymin === undefined || ymax === undefined) {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of pts) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (o.zero) lo = Math.min(0, lo);
+    const pad = (hi - lo) * 0.06 || 0.5;
+    ymin = ymin ?? (o.zero ? lo : lo - pad); ymax = ymax ?? hi + pad;
+  }
+  const X = x => L + (x - xmin) / (xmax - xmin) * pw, Y = y => T + ph - (y - ymin) / (ymax - ymin) * ph;
+  Object.assign(PLOT, { o, X, Y, L, T, pw, ph, xmin, xmax, ymin, ymax });
+
+  g.font = `12px ${mono}`; g.fillStyle = "#8597a8"; g.strokeStyle = "#2b3a48"; g.lineWidth = 1;
+  // y grid
+  const ys = niceStep(ymax - ymin, Math.max(3, ph / 40));
+  g.textAlign = "right"; g.textBaseline = "middle";
+  for (let v = Math.ceil(ymin / ys) * ys; v <= ymax + ys * 1e-6; v += ys) {
+    const y = Math.round(Y(v)) + .5;
+    g.beginPath(); g.moveTo(L, y); g.lineTo(L + pw, y); g.stroke();
+    g.fillText(+v.toFixed(6) + "", L - 6, y);
+  }
+  // x grid
+  g.textAlign = "center"; g.textBaseline = "top";
+  if (o.time) {
+    const span = xmax - xmin, step = TIME_STEPS.find(s => span / s <= Math.max(3, pw / 90)) || 604800;
+    const off = tzOffset(xmax);
+    const multiDay = span > 86400 * 0.9 && step < 86400;
+    for (let t = Math.ceil((xmin + off) / step) * step - off; t <= xmax; t += step) {
+      const x = Math.round(X(t)) + .5;
+      g.beginPath(); g.moveTo(x, T); g.lineTo(x, T + ph); g.stroke();
+      const d = new Date((t + off) * 1000), hh = String(d.getUTCHours()).padStart(2, "0"),
+        mm = String(d.getUTCMinutes()).padStart(2, "0"), dd = String(d.getUTCDate()).padStart(2, "0"),
+        mon = d.toLocaleString("en", { month: "short", timeZone: "UTC" });
+      g.fillText(step >= 86400 ? `${mon} ${dd}` : step < 60 ? `${hh}:${mm}:${String(d.getUTCSeconds()).padStart(2, "0")}`
+        : multiDay ? `${dd} ${hh}:${mm}` : `${hh}:${mm}`, x, T + ph + 6);
+    }
+  } else {
+    const xs = niceStep(xmax - xmin, Math.max(3, pw / 80));
+    for (let v = Math.ceil(xmin / xs) * xs; v <= xmax + xs * 1e-6; v += xs) {
+      const x = Math.round(X(v)) + .5;
+      g.beginPath(); g.moveTo(x, T); g.lineTo(x, T + ph); g.stroke();
+      g.fillText(+v.toFixed(6) + "", x, T + ph + 6);
+    }
+  }
+  g.strokeStyle = "#3d5063"; g.strokeRect(L + .5, T + .5, pw, ph);
+  // labels
+  g.fillStyle = "#d8e0e8"; g.font = `600 14px ${mono}`; g.textAlign = "center"; g.textBaseline = "top";
+  g.fillText(o.title, L + pw / 2, 6);
+  g.font = `12px system-ui, sans-serif`; g.fillStyle = "#8597a8";
+  g.fillText(o.xlabel, L + pw / 2, T + ph + 24);
+  g.save(); g.translate(14, T + ph / 2); g.rotate(-Math.PI / 2); g.textBaseline = "middle"; g.fillText(o.ylabel, 0, 0); g.restore();
+  // legend
+  let lx = L + pw - 8; g.textAlign = "right"; g.textBaseline = "top";
+  for (const s of [...o.series].reverse()) if (s.label) {
+    g.fillStyle = s.color; g.fillText(s.label, lx, T + 6); lx -= g.measureText(s.label).width + 16;
+  }
+  // data
+  g.save(); g.beginPath(); g.rect(L, T, pw, ph); g.clip();
+  for (const s of o.series) {
+    g.fillStyle = s.color; g.strokeStyle = s.color; g.lineWidth = s.width || 1.5;
+    if (s.kind === "line") {
+      g.beginPath(); let pen = false;
+      for (let i = 0; i < s.x.length; i++) {
+        if (!isFinite(s.y[i]) || (i && s.gap && s.x[i] - s.x[i - 1] > s.gap)) { pen = false; if (!isFinite(s.y[i])) continue; }
+        const x = X(s.x[i]), y = Y(s.y[i]);
+        pen ? g.lineTo(x, y) : g.moveTo(x, y); pen = true;
+      }
+      g.stroke();
+    } else {
+      const r = s.size || 3;
+      for (let i = 0; i < s.x.length; i++) {
+        if (s.x[i] < xmin || s.x[i] > xmax || !isFinite(s.y[i])) continue;
+        g.fillRect(X(s.x[i]) - r, Y(s.y[i]) - r, 2 * r, 2 * r);
+      }
+    }
+  }
+  g.restore();
+  if (!pts.length) { g.fillStyle = "#8597a8"; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "14px system-ui, sans-serif";
+    g.fillText(o.empty || "no data", L + pw / 2, T + ph / 2); }
+  if (PLOT.hover) drawHover(g);
+}
+
+function drawHover(g) {
+  const { o, X, Y, hover } = PLOT;
+  let best = null, bd = 400;
+  for (const s of o.series) {
+    if (s.nohover) continue;
+    for (let i = 0; i < s.x.length; i++) {
+      const dx = X(s.x[i]) - hover[0], dy = Y(s.y[i]) - hover[1], d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = [s, i]; }
+    }
+  }
+  if (!best) return;
+  const [s, i] = best, x = X(s.x[i]), y = Y(s.y[i]);
+  g.strokeStyle = "#ffffff"; g.lineWidth = 1.5; g.strokeRect(x - 5, y - 5, 10, 10);
+  const txt = `${o.time ? fmtTime(s.x[i]) : fmt(s.x[i], 2) + " s"}   ${s.name || ""} ${fmt(s.y[i], o.ydigits ?? 2)}`;
+  g.font = `12px ${getComputedStyle(document.body).getPropertyValue("--mono")}`;
+  const w = g.measureText(txt).width + 12, bx = Math.min(x + 10, PLOT.L + PLOT.pw - w), by = Math.max(y - 28, PLOT.T + 2);
+  g.fillStyle = "rgba(15,20,25,.92)"; g.fillRect(bx, by, w, 20);
+  g.fillStyle = "#d8e0e8"; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(txt, bx + 6, by + 10);
+}
+$("plot").addEventListener("mousemove", e => { const r = e.target.getBoundingClientRect(); PLOT.hover = [e.clientX - r.left, e.clientY - r.top]; drawPlot(); });
+$("plot").addEventListener("mouseleave", () => { PLOT.hover = null; drawPlot(); });
+new ResizeObserver(() => drawPlot()).observe($("plot"));
+
+function drawPlot() {
+  if (activeTab !== "plots") return;
+  const c = $("plot");
+  if (activePlot === "seeing" || activePlot === "flux") {
+    const now = S ? S.now : Date.now() / 1000, end = plotEnd ?? now, start = end - plotRange;
+    const h = hist || { t: [], seeing: [], flux: [] };
+    const n = h.t.filter(t => t >= start && t <= end).length;
+    if (activePlot === "seeing") {
+      const sm = rollingMedian(h.t, h.seeing, 7, 1800);
+      plotCanvas(c, { title: "Zenith seeing", xlabel: `Time (${TZ})`, ylabel: "Seeing, arcsec", time: true,
+        xmin: start, xmax: end, zero: true, empty: "no seeing measurements in this range",
+        series: [{ x: h.t, y: h.seeing, color: "#6fa8dc", size: 2.5, name: "seeing", label: "zenith seeing" },
+                 { x: h.t, y: sm, color: "#e0604f", kind: "line", gap: 900, nohover: true, label: "running median" }] });
+      const inr = h.seeing.filter((v, i) => h.t[i] >= start && h.t[i] <= end).sort((a, b) => a - b);
+      $("plotinfo").textContent = n ? `${n} points, median ${fmt(inr[inr.length >> 1])}"` : "";
+    } else {
+      plotCanvas(c, { title: "Mean flux, for cloud monitoring", xlabel: `Time (${TZ})`, ylabel: "Flux, ADU", time: true,
+        xmin: start, xmax: end, zero: true, ydigits: 0, empty: "no flux measurements in this range",
+        series: [{ x: h.t, y: h.flux, color: "#e0604f", size: 2.5, name: "flux" }] });
+      $("plotinfo").textContent = n ? `${n} points` : "";
+    }
+    return;
+  }
+  const m = motion || { t: [], x: [], y: [], fwhm: [] };
+  const tmax = m.t.length ? m.t[m.t.length - 1] : 60;
+  const age = m.t0 != null && S ? S.now - (m.t0 + tmax) : null;
+  if (activePlot === "motion") {
+    const mean = a => a.reduce((s, v) => s + v, 0) / (a.length || 1);
+    const mx = mean(m.x), my = mean(m.y), mt = mean(m.t);
+    // remove the slow drift (linear in time), as is done before computing seeing
+    const stt = m.t.reduce((s, t) => s + (t - mt) ** 2, 0) || 1;
+    const detrend = (a, ma) => { const b = m.t.reduce((s, t, i) => s + (t - mt) * (a[i] - ma), 0) / stt;
+                                 return a.map((v, i) => v - ma - b * (m.t[i] - mt)); };
+    const dx = detrend(m.x, mx), dy = detrend(m.y, my);
+    const sd = a => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / (a.length || 1));
+    plotCanvas(c, { title: "Star motion", xlabel: "Time, s", ylabel: "Position − linear drift, pixels",
+      xmin: 0, xmax: Math.max(tmax, 1), empty: "no centroids yet", ydigits: 3,
+      series: [{ x: m.t, y: dx, color: "#e0604f", kind: "line", width: 1, gap: 0.5, name: "x", label: `X (rms ${fmt(sd(dx), 3)})` },
+               { x: m.t, y: dy, color: "#6fa8dc", kind: "line", width: 1, gap: 0.5, name: "y", label: `Y (rms ${fmt(sd(dy), 3)})` }] });
+    $("motioninfo").textContent = m.t.length ? `last ${m.t.length} centroids over ${fmt(tmax, 1)} s, mean X=${fmt(mx, 1)} Y=${fmt(my, 1)} px` +
+      (age > 10 ? `, ended ${fmtAge(age)}` : "") : "";
+  } else {
+    plotCanvas(c, { title: "Star FWHM", xlabel: "Time, s", ylabel: "FWHM, pixels",
+      xmin: 0, xmax: Math.max(tmax, 1), zero: true, empty: "no centroids yet",
+      series: [{ x: m.t, y: m.fwhm, color: "#4cc38a", size: 1.2, name: "fwhm" }] });
+    const mf = m.fwhm.length ? m.fwhm.reduce((s, v) => s + v, 0) / m.fwhm.length : null;
+    $("motioninfo").textContent = m.t.length ? `last ${m.t.length} centroids, mean FWHM ${fmt(mf, 2)} px` + (age > 10 ? `, ended ${fmtAge(age)}` : "") : "";
+  }
+}
+
+// --- log -------------------------------------------------------------------------------------------
+let logAfter = -1, logLines = 0;
+async function pollLog() {
+  try {
+    const recs = await getJSON(`api/log?after=${logAfter}`);
+    if (!recs.length) return;
+    const pre = $("log"), frag = document.createDocumentFragment();
+    for (const r of recs) {
+      const div = document.createElement("div"); div.className = r.level;
+      const ts = document.createElement("span"); ts.className = "t"; ts.textContent = fmtTime(r.t) + " ";
+      div.append(ts, (r.level !== "INFO" ? r.level + " " : "") + r.msg);
+      frag.append(div); logAfter = r.id; logLines++;
+    }
+    pre.append(frag);
+    while (pre.childElementCount > 2000) { pre.firstChild.remove(); logLines--; }
+    $("logcount").textContent = `${logLines} lines`;
+    if ($("logfollow").checked) pre.scrollTop = pre.scrollHeight;
+  } catch (e) { }
+}
+
+// --- timers ----------------------------------------------------------------------------------------
+// tabs can be linked to: #status, #plots, #plots/motion, #plots/seeing/1w, ...
+function selectFromHash() {
+  const [tab, plot, range] = location.hash.slice(1).split("/");
+  if (plot) document.querySelector(`#plottabs [data-plot="${plot}"]`)?.click();
+  if (range) [...document.querySelectorAll("#rangectl [data-range]")].find(b => b.textContent === range)?.click();
+  if (tab) document.querySelector(`#tabs [data-tab="${tab}"]`)?.click();
+}
+document.querySelectorAll("#tabs button, #plottabs button").forEach(b => b.addEventListener("click", () =>
+  history.replaceState(null, "", "#" + activeTab + (activeTab === "plots" ? "/" + activePlot : ""))));
+window.addEventListener("hashchange", selectFromHash);
+selectFromHash();
+pollStatus(); pollLog();
+setInterval(pollStatus, 1000);
+setInterval(pollLog, 2000);
+setInterval(() => { if (activeTab === "plots" && (activePlot === "motion" || activePlot === "fwhm")) loadMotion(); }, 3000);
+setInterval(() => { if (activeTab === "plots" && (activePlot === "seeing" || activePlot === "flux")) loadHistory(); }, 60000);
+</script>
+</body>
+</html>

@@ -3,8 +3,11 @@ The measurement loop: wait for night, find Polaris in a full frame, track it in 
 interest, and reduce each block of `n_samples` centroids to a seeing value.
 """
 
+import dataclasses
 import logging
+import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 
 import numpy as np
@@ -30,8 +33,14 @@ class Monitor:
         self.clock = clock
         self.now = now
         self.state = None
-        self.results = []
+        self.results = deque(maxlen=20000)   # every block, accepted or not (about two weeks)
+        self.n_results = 0
         self._reset_samples()
+        # read by the web interface from another thread
+        self.lock = threading.Lock()
+        self.frame = None             # (timestamp, image, region) of the last grabbed frame
+        self.star = None              # (timestamp, Star in full-frame pixels) of the last valid centroid
+        self.recent = deque(maxlen=cfg['measurement']['n_samples'])  # (t, x, y, fwhm, flux)
         self.pos = None               # last star position, full-frame pixels
         self.last_valid = None
         self.last_search = None
@@ -96,6 +105,7 @@ class Monitor:
             frame = cam.grab(timeout_s=2.0)
             if frame is None:
                 continue
+            self.frame = (frame[0], frame[1], tuple(cam.region))
             s = star.measure(frame[1], box=st['box'], min_snr=st['min_snr'])
             if not self._valid(s):
                 found = []
@@ -118,6 +128,7 @@ class Monitor:
         if s.n_saturated >= 3:
             log.warning(f"{s.n_saturated} saturated pixels; reduce exposure or gain")
         self.pos = (s.x, s.y)
+        self.star = (frame[0], s)
         self._set_roi(s.x, s.y)
         self._reset_samples()
         self.last_valid = self.clock()
@@ -134,6 +145,7 @@ class Monitor:
         if frame is not None:
             t, img = frame
             x0, y0, w, h = cam.region
+            self.frame = (t, img, (x0, y0, w, h))
             guess = (self.pos[0] - x0, self.pos[1] - y0)
             s = star.measure(img, box=st['box'], min_snr=st['min_snr'], guess=guess, search=st['search'])
 
@@ -155,6 +167,9 @@ class Monitor:
         smp['y'].append(y)
         smp['fwhm'].append(s.fwhm)
         smp['flux'].append(s.flux)
+        self.star = (t, dataclasses.replace(s, x=x, y=y))
+        with self.lock:
+            self.recent.append((t, x, y, s.fwhm, s.flux))
 
         m = st['recenter_margin']
         if s.x < m or s.y < m or s.x > w - m or s.y > h - m:
@@ -172,10 +187,13 @@ class Monitor:
         r = seeing.compute(smp['t'], smp['x'], smp['y'], lat, detrend=self.cfg['measurement']['detrend'])
         flux = float(np.mean(smp['flux']))
         rate = (len(smp['t']) - 1) / (smp['t'][-1] - smp['t'][0])
-        r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end)
-        self.results.append(r)
+        accepted = r['zenith'] <= self.cfg['measurement']['max_zenith_seeing']
+        r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end, accepted=accepted)
+        with self.lock:
+            self.results.append(r)
+        self.n_results += 1
 
-        if r['zenith'] > self.cfg['measurement']['max_zenith_seeing']:
+        if not accepted:
             log.info(f"Seeing above threshold ({r['zenith']:.2f} > "
                      f"{self.cfg['measurement']['max_zenith_seeing']} arcsec), value discarded")
             return
@@ -196,6 +214,7 @@ class Monitor:
                     log.info("Stop measurements because of daytime")
                 self._drop_camera()
                 self._reset_samples()
+                self.frame = None
                 self._set_state(DAY)
             self.sleep(60)
             return
@@ -209,7 +228,7 @@ class Monitor:
 
     def run(self, ignore_sun=False, max_results=None, should_stop=lambda: False):
         while not should_stop():
-            if max_results is not None and len(self.results) >= max_results:
+            if max_results is not None and self.n_results >= max_results:
                 break
             try:
                 self.step(ignore_sun=ignore_sun)

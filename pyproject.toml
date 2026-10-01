@@ -23,5 +23,8 @@ cyclop = "cyclop.cli:main"
 [tool.setuptools]
 packages = ["cyclop"]
 
+[tool.setuptools.package-data]
+cyclop = ["static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

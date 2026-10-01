@@ -22,6 +22,14 @@ detrend = 1
 data_dir = "~/cyclop_data"
 save_motion = false
 
+[web]
+enabled = true
+host = "0.0.0.0"             # read-only status pages at http://<host>:8080/
+port = 8080
+# The plots read history from <data_dir>/Seeing_Data.txt; add other files (e.g. the Windows
+# software's log) to plot them too:
+# history_files = ["/mnt/c/Users/Timothy Pickering/Documents/MiniCyclop/Data/Seeing_Data.txt"]
+
 [redis]
 enabled = true
 # host/port default to $REDISHOST/$REDISPORT, then redis.mmto.arizona.edu:6379

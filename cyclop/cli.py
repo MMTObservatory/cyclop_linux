@@ -1,7 +1,7 @@
 """
 Command line entry point.
 
-    cyclop run [-c config.toml] [--simulate] [--ignore-sun] [--no-redis] [-n N]
+    cyclop run [-c config.toml] [--simulate] [--ignore-sun] [--no-redis] [--no-web] [-n N]
     cyclop replay MOTION_FILE [...]      reduce Windows *_motion.txt files with this code
     cyclop camera-info [--address IP]    list camera features through Aravis
 """
@@ -16,7 +16,9 @@ from cyclop import config, seeing
 
 
 def _setup_logging(level, logfile=None):
-    handlers = [logging.StreamHandler()]
+    from cyclop.web import LogBuffer
+    handlers = [logging.StreamHandler(), LogBuffer()]
+    handlers[1].setLevel(logging.INFO)
     if logfile:
         Path(logfile).expanduser().parent.mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(Path(logfile).expanduser()))
@@ -59,7 +61,25 @@ def cmd_run(args):
     signal.signal(signal.SIGINT, handler)
 
     mon = Monitor(cfg, factory, writer=writer, publisher=publisher)
-    mon.run(ignore_sun=args.ignore_sun, max_results=args.n, should_stop=lambda: stop['flag'])
+
+    web = None
+    wcfg = cfg['web']
+    if wcfg['enabled'] and not args.no_web:
+        from cyclop.web import LogBuffer, WebServer, WebState
+        logbuf = next(h for h in logging.getLogger().handlers if isinstance(h, LogBuffer))
+        state = WebState(mon, logbuf, history_days=wcfg['history_days'],
+                         history_files=[writer.data_dir / "Seeing_Data.txt", *wcfg['history_files']])
+        port = args.web_port or wcfg['port']
+        try:
+            web = WebServer(state, host=wcfg['host'], port=port).start()
+        except OSError as e:
+            logging.getLogger(__name__).error(f"Web interface not started on port {port}: {e}")
+
+    try:
+        mon.run(ignore_sun=args.ignore_sun, max_results=args.n, should_stop=lambda: stop['flag'])
+    finally:
+        if web:
+            web.stop()
 
 
 def read_motion(path):
@@ -115,6 +135,8 @@ def main(argv=None):
     r.add_argument('--ignore-sun', action='store_true', help="measure regardless of Sun altitude")
     r.add_argument('--no-redis', action='store_true', help="do not publish to redis")
     r.add_argument('--data-dir', help="override output.data_dir")
+    r.add_argument('--no-web', action='store_true', help="do not start the web interface")
+    r.add_argument('--web-port', type=int, help="override web.port")
     r.add_argument('-n', type=int, help="stop after N seeing measurements")
     r.set_defaults(func=cmd_run)
 

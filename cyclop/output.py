@@ -66,6 +66,8 @@ class RedisPublisher:
         self.server = redis.StrictRedis(host=host, port=port, password=password, db=0,
                                         socket_timeout=5, socket_connect_timeout=5)
         log.info(f"Publishing to redis at {host}:{port}")
+        self.last_ok = None           # time of the last successful update, for the web interface
+        self.last_error = None
 
     def publish(self, t_utc, flux, result):
         values = {
@@ -79,5 +81,8 @@ class RedisPublisher:
                 key = REDIS_PREFIX + k
                 self.server.set(key, v)
                 self.server.publish(key, v)
+            self.last_ok = t_utc.timestamp()
+            self.last_error = None
         except Exception as e:
+            self.last_error = str(e)
             log.warning(f"Problem updating seeing values in redis: {e}")

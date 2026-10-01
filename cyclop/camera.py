@@ -183,7 +183,8 @@ class SimCamera:
                 yy, xx = np.mgrid[ya:yb, xa:xb]
                 img[ya:yb, xa:xb] += self.peak * np.exp(
                     -((xx - lx) ** 2 + (yy - ly) ** 2) / (2 * self.sigma ** 2))
-        return self.t, np.clip(img, 0, 255).astype(np.uint8)
+        stamp = time.time() if self.realtime else self.t   # wall-clock timestamps when running live
+        return stamp, np.clip(img, 0, 255).astype(np.uint8)
 
     def close(self):
         pass
