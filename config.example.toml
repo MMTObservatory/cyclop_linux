@@ -1,0 +1,27 @@
+# cyclop configuration. Anything left out takes the default in cyclop/config.py,
+# which mirrors the Windows SeeingMonitor_Cyclop settings at the MMTO.
+
+[site]
+latitude = 31.686944
+longitude = -110.884167      # east-positive
+timezone = "America/Phoenix"
+max_sun_alt = -5.0
+
+[camera]
+address = "192.168.2.59"
+exposure_us = 3906.25        # 1/256 s
+gain = 12.43                 # dB (camera range 0-15)
+frame_rate = 60.0
+
+[measurement]
+n_samples = 3000
+max_zenith_seeing = 7.0
+detrend = 1
+
+[output]
+data_dir = "~/cyclop_data"
+save_motion = false
+
+[redis]
+enabled = true
+# host/port default to $REDISHOST/$REDISPORT, then redis.mmto.arizona.edu:6379

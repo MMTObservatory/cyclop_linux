@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyclop"
+version = "0.1.0"
+description = "Linux replacement for the Alcor System SeeingMonitor_Cyclop software (MMTO MiniCyclop)"
+authors = [{ name = "T. E. Pickering", email = "te.pickering@gmail.com" }]
+requires-python = ">=3.11"
+dependencies = ["numpy", "redis"]
+
+# Camera access needs Aravis and PyGObject from the system:
+#   sudo apt install aravis-tools gir1.2-aravis-0.8 python3-gi
+# and a venv created with --system-site-packages.
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+cyclop = "cyclop.cli:main"
+
+[tool.setuptools]
+packages = ["cyclop"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

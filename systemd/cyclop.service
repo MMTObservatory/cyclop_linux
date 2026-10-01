@@ -1,0 +1,17 @@
+# Install as a user service:
+#   mkdir -p ~/.config/systemd/user && cp systemd/cyclop.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now cyclop
+#   sudo loginctl enable-linger $USER        # keep it running without a login session
+[Unit]
+Description=MiniCyclop seeing monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/miniconda3/envs/cyclop/bin/cyclop -c %h/cyclop_linux/config.toml run
+Restart=always
+RestartSec=30
+# Environment=REDISPW=...
+
+[Install]
+WantedBy=default.target

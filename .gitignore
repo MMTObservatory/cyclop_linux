@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+
+# local configuration and link to the Windows installation
+config.toml
+Mini Cyclop Software

@@ -1,0 +1,67 @@
+"""
+Configuration, loaded from a TOML file over these defaults. Defaults reproduce the settings of the
+Windows installation at the MMTO (from HKCU\\Software\\MiniCyclop).
+"""
+
+import copy
+import tomllib
+
+DEFAULTS = {
+    'site': {
+        'name': 'MMTO',
+        'latitude': 31.686944,        # deg (31 41 13), as configured in the Windows software
+        'longitude': -110.884167,     # deg, east-positive (110 53 03 W)
+        'timezone': 'America/Phoenix',
+        'max_sun_alt': -5.0,          # deg; measure only when the Sun is below this
+    },
+    'camera': {
+        'simulate': False,
+        'address': '192.168.2.59',    # None/"" = first camera found
+        'exposure_us': 3906.25,       # Windows "Exposure=-8" is 2**-8 s
+        'gain': 12.43,                # dB; what the Windows setting "Gain=120" left on the camera
+        'frame_rate': 60.0,
+        'roi_width': 640,
+        'roi_height': 480,
+    },
+    'star': {
+        'min_snr': 10.0,
+        'box': 10,                    # centroid half-width, px
+        'search': 40,                 # search radius around the previous position in the ROI, px
+        'max_fwhm': 8.0,
+        'recenter_margin': 120,       # move the ROI when the star is closer than this to an edge, px
+        'confirm_frames': 3,          # consecutive full-frame detections needed before tracking
+    },
+    'measurement': {
+        'n_samples': 3000,
+        'max_zenith_seeing': 7.0,     # arcsec; larger values are discarded
+        'detrend': 1,                 # polynomial degree removed from x(t), y(t)
+        'lost_timeout': 30.0,         # s without a valid centroid before searching full frame again
+        'search_interval': 10.0,      # s between full-frame search attempts
+    },
+    'output': {
+        'data_dir': '~/cyclop_data',
+        'save_motion': False,
+    },
+    'redis': {
+        'enabled': True,
+        'host': None,                 # None = $REDISHOST or redis.mmto.arizona.edu
+        'port': None,
+    },
+}
+
+
+def _merge(base, over):
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+def load(path=None):
+    cfg = copy.deepcopy(DEFAULTS)
+    if path:
+        with open(path, 'rb') as f:
+            _merge(cfg, tomllib.load(f))
+    return cfg
