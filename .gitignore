@@ -9,3 +9,6 @@ dist/
 # local configuration and link to the Windows installation
 config.toml
 Mini Cyclop Software
+
+# local Claude Code notes (machine-specific)
+CLAUDE.md
