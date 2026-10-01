@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Linux replacement for the Alcor System SeeingMonitor_Cyclop software (MMTO MiniCyclop)"
 authors = [{ name = "T. E. Pickering", email = "te.pickering@gmail.com" }]
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["numpy", "redis"]
 
 # Camera access needs Aravis and PyGObject from the system:
