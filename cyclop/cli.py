@@ -32,6 +32,10 @@ def cmd_run(args):
 
     cfg = config.load(args.config)
     cam_cfg = cfg['camera']
+    if args.gain is not None:
+        cam_cfg['gain'] = args.gain
+    if args.exposure is not None:
+        cam_cfg['exposure_us'] = args.exposure
     if args.simulate or cam_cfg['simulate']:
         from cyclop.camera import SimCamera
 
@@ -120,6 +124,10 @@ def cmd_camera_info(args):
     print("sensor", cam.get_sensor_size(), "region", cam.get_region())
     print("exposure", cam.get_exposure_time(), cam.get_exposure_time_bounds())
     print("gain", cam.get_gain(), cam.get_gain_bounds())
+    try:     # integer gain, the units of the Windows software's "Gain" setting
+        print("gain raw", cam.get_integer("GainRaw"), cam.get_integer_bounds("GainRaw"))
+    except Exception as e:
+        print("gain raw unavailable:", e)
     print("frame rate", cam.get_frame_rate(), cam.get_frame_rate_bounds())
     print("pixel formats", cam.dup_available_pixel_formats_as_display_names())
 
@@ -139,6 +147,8 @@ def main(argv=None):
     r.add_argument('--no-web', action='store_true', help="do not start the web interface")
     r.add_argument('--web-port', type=int, help="override web.port")
     r.add_argument('-n', type=int, help="stop after N seeing measurements")
+    r.add_argument('--gain', type=float, help="override camera.gain, dB (0-15)")
+    r.add_argument('--exposure', type=float, help="override camera.exposure_us, microseconds")
     r.set_defaults(func=cmd_run)
 
     rp = sub.add_parser('replay', help="reduce Windows *_motion.txt files")

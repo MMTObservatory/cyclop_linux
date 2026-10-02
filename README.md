@@ -51,6 +51,7 @@ cp config.example.toml config.toml
 cyclop -c config.toml camera-info                 # check the camera is reachable
 cyclop -c config.toml run --simulate --ignore-sun --no-redis -n 2    # dry run with a fake star
 cyclop -c config.toml run                         # the real thing
+cyclop -c config.toml run --gain 10 --exposure 2000   # try other camera settings (dB, us)
 cyclop replay ~/path/to/*_Motion.txt              # reduce Windows motion files with this code
 ```
 

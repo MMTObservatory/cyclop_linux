@@ -31,7 +31,7 @@ class AravisCamera:
     STREAM_COUNTERS = ('n_underruns', 'n_failures', 'n_missing_frames', 'n_missing_packets',
                        'n_resent_packets')
 
-    def __init__(self, address=None, exposure_us=3906.0, gain=12.43, frame_rate=None, n_buffers=32):
+    def __init__(self, address=None, exposure_us=3906.0, gain=8.80, frame_rate=None, n_buffers=32):
         import gi
         gi.require_version('Aravis', '0.8')
         from gi.repository import Aravis
@@ -70,11 +70,13 @@ class AravisCamera:
 
     def set_exposure(self, exposure_us):
         self.cam.set_exposure_time(float(exposure_us))
-        log.info(f"Exposure set to {self.cam.get_exposure_time():.1f} us")
+        self.exposure_us = self.cam.get_exposure_time()      # what the camera actually took
+        log.info(f"Exposure set to {self.exposure_us:.1f} us")
 
     def set_gain(self, gain):
         self.cam.set_gain(float(gain))
-        log.info(f"Gain set to {self.cam.get_gain()}")
+        self.gain = self.cam.get_gain()
+        log.info(f"Gain set to {self.gain:.2f} dB")
 
     def set_region(self, x, y, width, height):
         was_running = self.running

@@ -209,7 +209,9 @@ class WebState:
             'camera': {
                 'simulated': type(mon.camera).__name__ == 'SimCamera' if mon.camera else None,
                 'open': mon.camera is not None,
-                'exposure_us': cam_cfg['exposure_us'], 'gain': cam_cfg['gain'],
+                # the values the camera reports once open, else the configured ones
+                'exposure_us': getattr(mon.camera, 'exposure_us', cam_cfg['exposure_us']),
+                'gain': getattr(mon.camera, 'gain', cam_cfg['gain']),
                 'frame_rate': cam_cfg['frame_rate'],
                 'sensor': list(mon.camera.sensor_size) if mon.camera else None,
                 'region': list(mon.camera.region) if mon.camera else None,
