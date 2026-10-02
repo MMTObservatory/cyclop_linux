@@ -13,10 +13,17 @@ exposure_us = 3906.25        # 1/256 s
 gain = 8.80                  # dB (camera range 0-15); Windows "Gain=85"
 frame_rate = 132.0           # max for the 640x480 region; clipped to what each region allows
 
+[star]
+centroid = "xcorr"           # Gaussian cross-correlation; "moments" for the old thresholded centroid
+xcorr_sigma = 1.0            # px, ~ star FWHM / 2.355
+xcorr_reach = 10             # px searched around the last position
+xcorr_min_snr = 5.0
+
 [measurement]
 n_samples = 3000
 max_zenith_seeing = 7.0
 detrend = 1
+clip = 5.0                   # robust-sigma outlier cut per block; 0 keeps every sample
 chunk_frames = 256           # frames centroided together while the next chunk is acquired
 chunk_seconds = 2.0
 

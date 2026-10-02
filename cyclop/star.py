@@ -189,3 +189,88 @@ def measure_cube(cube, box=10, min_snr=10.0, saturation=255):
         'snr': snr.astype(float),
         'ok': ok,
     }
+
+
+def _gaussian_kernel(sigma):
+    r = int(np.ceil(3 * sigma))
+    return np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2).astype(np.float32)
+
+
+def _log_parabola(lo, mid, hi):
+    """Sub-pixel offset of a peak from three samples, fitting a Gaussian (a parabola in log)."""
+    lo, mid, hi = (np.log(np.maximum(v, 1e-6)) for v in (lo, mid, hi))
+    d = lo - 2 * mid + hi
+    with np.errstate(divide='ignore', invalid='ignore'):
+        off = np.where(d < 0, 0.5 * (lo - hi) / d, 0.0)
+    return np.clip(off, -0.5, 0.5)
+
+
+def correlate_cube(cube, gx, gy, sigma=1.0, reach=10):
+    """
+    Star positions in a stack of cutouts by cross-correlation with a Gaussian (a matched filter).
+
+    Each frame, background subtracted, is correlated with a Gaussian of width `sigma` over a window
+    `reach` pixels around the guess (gx, gy); the position is the correlation peak, refined to
+    sub-pixel by fitting a Gaussian through it and its neighbours along each axis. Every pixel
+    contributes in proportion to the expected signal there, so read noise in the wings, which
+    dominates thresholded or aperture centroids of a ~2 px star, is weighted down, and there is no
+    threshold or aperture edge for the star to cross. Searching only near the guess keeps a faint
+    frame from locking onto noise elsewhere in the cutout.
+
+    Parameters
+    ----------
+    cube : (n, h, w) uint8 ndarray
+        Cutouts around the star, h * w odd.
+    gx, gy : float or length-n arrays
+        Expected position in each cutout, pixels.
+    sigma : float
+        Gaussian sigma, pixels; close to the star's (FWHM / 2.355) is best, the result is not
+        sensitive to it.
+    reach : int
+        Search half-width around the guess, pixels.
+
+    Returns
+    -------
+    dict of length-n arrays: x, y (cutout pixel coordinates) and snr, the correlation peak over
+    its noise (the S/N of a matched-filter detection).
+    """
+    n, h, w = cube.shape
+    if cube.dtype != np.uint8 or h * w % 2 == 0:
+        raise ValueError("need uint8 cutouts with an odd number of pixels")
+    g = _gaussian_kernel(sigma)
+    r = len(g) // 2
+    m = 2 * (reach + r) + 1
+    if h < m or w < m:
+        raise ValueError(f"cutouts must be at least {m}x{m} for reach={reach}, sigma={sigma}")
+
+    flat = cube.reshape(n, -1).astype(np.int16)
+    bg = _row_median(flat)
+    noise = np.maximum(1.4826 * _row_median(np.abs(flat - bg[:, None].astype(np.int16))), 0.5)
+
+    gx = np.broadcast_to(np.rint(gx).astype(int), (n,))
+    gy = np.broadcast_to(np.rint(gy).astype(int), (n,))
+    ya = np.clip(gy - reach - r, 0, h - m)
+    xa = np.clip(gx - reach - r, 0, w - m)
+    k = np.arange(m)
+    win = cube[np.arange(n)[:, None, None], (ya[:, None] + k)[:, :, None], (xa[:, None] + k)[:, None, :]]
+    win = win.astype(np.float32) - bg[:, None, None].astype(np.float32)
+
+    # separable correlation over the window ('valid' part: one value per candidate position)
+    q = m - 2 * r
+    c = sum(g[j] * win[:, j:j + q, :] for j in range(len(g)))
+    c = sum(g[j] * c[:, :, j:j + q] for j in range(len(g)))
+
+    at = c[:, 1:-1, 1:-1].reshape(n, -1).argmax(axis=1)     # keep a neighbour on every side
+    py, px = np.divmod(at, q - 2)
+    py += 1
+    px += 1
+    i = np.arange(n)
+    peak = c[i, py, px]
+    fx = px + _log_parabola(c[i, py, px - 1], peak, c[i, py, px + 1])
+    fy = py + _log_parabola(c[i, py - 1, px], peak, c[i, py + 1, px])
+    return {
+        'x': xa + r + fx,
+        'y': ya + r + fy,
+        # noise in the correlation is noise * sqrt(sum of squared 2-d weights) = noise * sum(g^2)
+        'snr': (peak / (noise * float((g ** 2).sum()))).astype(float),
+    }

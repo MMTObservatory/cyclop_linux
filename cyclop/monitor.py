@@ -181,11 +181,20 @@ class Monitor:
         st, ms = self.cfg['star'], self.cfg['measurement']
         started = time.perf_counter()
         n = chunk.n
-        r = star.measure_cube(chunk.cube[:n], box=st['box'], min_snr=st['min_snr'])
+        cube, x0, y0 = chunk.cube[:n], chunk.x0[:n], chunk.y0[:n]
+        r = star.measure_cube(cube, box=st['box'], min_snr=st['min_snr'])
         t = chunk.t[:n]
-        x = r['x'] + chunk.x0[:n]
-        y = r['y'] + chunk.y0[:n]
-        good = np.flatnonzero(r['ok'] & (r['fwhm'] > 0.5) & (r['fwhm'] <= st['max_fwhm']))
+        ok = r['ok'] & (r['fwhm'] > 0.5) & (r['fwhm'] <= st['max_fwhm'])
+        if st['centroid'] == 'xcorr':
+            # positions from the matched filter, searched around where the star was last seen;
+            # measure_cube still supplies flux, peak, FWHM and saturation, and vets the frame
+            c = star.correlate_cube(cube, self.pos[0] - x0, self.pos[1] - y0,
+                                    sigma=st['xcorr_sigma'], reach=st['xcorr_reach'])
+            x, y = c['x'] + x0, c['y'] + y0
+            ok &= c['snr'] >= st['xcorr_min_snr']
+        else:
+            x, y = r['x'] + x0, r['y'] + y0
+        good = np.flatnonzero(ok)
         self._update_cam_stats()
         if len(good) == 0:
             self._check_lost()
@@ -261,12 +270,16 @@ class Monitor:
             self.samples, self.proc_times = rest, proc[-1:]
         t_end = self.now()
         lat = self.cfg['site']['latitude']
-        r = seeing.compute(smp['t'], smp['x'], smp['y'], lat, detrend=self.cfg['measurement']['detrend'])
-        flux = float(np.mean(smp['flux']))
+        ms = self.cfg['measurement']
         rate = (len(smp['t']) - 1) / span
+        keep = seeing.inliers(smp['t'], smp['x'], smp['y'], ms['detrend'], ms['clip'] or None)
+        n_clipped = int((~keep).sum())
+        smp = {k: v[keep] for k, v in smp.items()}
+        r = seeing.compute(smp['t'], smp['x'], smp['y'], lat, detrend=ms['detrend'])
+        flux = float(np.mean(smp['flux']))
         accepted = r['zenith'] <= self.cfg['measurement']['max_zenith_seeing']
         r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end, accepted=accepted,
-                 **frames)
+                 n_clipped=n_clipped, **frames)
         with self.lock:
             self.results.append(r)
         self.n_results += 1
@@ -277,7 +290,7 @@ class Monitor:
             return
         log.info(f"Seeing Zen. Ok : {r['zenith']:.2f} arcsec (local {r['local']:.2f}, "
                  f"sigma {r['sigma_x']:.3f}/{r['sigma_y']:.3f} px, fwhm {r['fwhm']:.2f} px, "
-                 f"flux {flux:.0f}, {rate:.1f} fps{self._drop_text(r)})")
+                 f"flux {flux:.0f}, {rate:.1f} fps, {n_clipped} clipped{self._drop_text(r)})")
         if self.writer:
             self.writer.write(t_end, flux, r, samples=smp)
         if self.publisher:

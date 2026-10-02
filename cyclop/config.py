@@ -24,8 +24,12 @@ DEFAULTS = {
         'roi_height': 480,
     },
     'star': {
-        'min_snr': 10.0,
-        'box': 10,                    # centroid half-width, px
+        'min_snr': 10.0,              # peak / background noise to accept a frame
+        'centroid': 'xcorr',          # 'xcorr' (Gaussian cross-correlation) or 'moments' (thresholded)
+        'xcorr_sigma': 1.0,           # px, Gaussian correlated with the star; ~FWHM / 2.355
+        'xcorr_reach': 10,            # px searched around the last position
+        'xcorr_min_snr': 5.0,         # correlation peak / its noise to accept a frame
+        'box': 10,                    # moments centroid half-width, px
         'search': 40,                 # search radius around the previous position in the ROI, px
         'max_fwhm': 8.0,
         'recenter_margin': 120,       # move the ROI when the star is closer than this to an edge, px
@@ -35,6 +39,7 @@ DEFAULTS = {
         'n_samples': 3000,
         'max_zenith_seeing': 7.0,     # arcsec; larger values are discarded
         'detrend': 1,                 # polynomial degree removed from x(t), y(t)
+        'clip': 5.0,                  # drop samples this many robust sigmas out; 0 keeps all
         'lost_timeout': 30.0,         # s without a valid centroid before searching full frame again
         'search_interval': 10.0,      # s between full-frame search attempts
         'chunk_frames': 256,          # frames centroided together while the next chunk is acquired
@@ -73,4 +78,6 @@ def load(path=None):
     if path:
         with open(path, 'rb') as f:
             _merge(cfg, tomllib.load(f))
+    if cfg['star']['centroid'] not in ('xcorr', 'moments'):
+        raise ValueError(f"star.centroid must be 'xcorr' or 'moments', not {cfg['star']['centroid']!r}")
     return cfg

@@ -15,9 +15,20 @@ Polaris' image motion, and publishes seeing straight to redis.
    (clouds), it goes back to full-frame searching. Acquisition and analysis run in parallel: a
    thread copies an 81×81 cutout around the star from each frame into chunks of up to 256 frames
    (`chunk_frames`, or `chunk_seconds`), and the main loop centroids a whole chunk at once with
-   vectorized numpy (about 0.15 ms per frame) while the next one fills.
-3. Every `n_samples` (3000) centroids, it removes the slow drift of Polaris (linear fit in time)
-   and computes:
+   vectorized numpy (about 0.1 ms per frame) while the next one fills.
+
+   Positions come from cross-correlating each frame with a Gaussian (`centroid = "xcorr"`, a
+   matched filter of sigma `xcorr_sigma`) within `xcorr_reach` px of the star's last position,
+   with the peak refined by a 3-point Gaussian fit along each axis. For a ~2 px star this has 2-4×
+   less noise than a thresholded centre of mass (`centroid = "moments"`, the original method) and
+   no pixel-phase bias: read noise in the wings, which the moments let into σ, is weighted down.
+   On sky (2026-10-02) the moments gave seeing ~35% above the MMT wavefront sensors, while the
+   cross-correlation agreed with them (2.27/2.36" vs WFS 2.27") and with photutils aperture
+   centroids at r ≈ 2 FWHM. Frames are kept when both the star's peak S/N (`min_snr`) and the
+   correlation S/N (`xcorr_min_snr`) pass.
+3. Every `n_samples` (3000) centroids, it drops samples more than `clip` (5) robust sigmas from
+   the drift-removed median (a frame that centroided on noise would otherwise dominate σ), removes
+   the slow drift of Polaris (linear fit in time) and computes:
 
    ```
    local seeing ["] = 13.58031732652 × (σx^1.2 + σy^1.2) / 2      σ in pixels

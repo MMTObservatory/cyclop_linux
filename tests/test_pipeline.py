@@ -142,3 +142,50 @@ def test_acquirer_chunks():
     finally:
         acq.stop()
     assert not acq._thread.is_alive()
+
+
+def _sim_cutouts(seed, n=64, r=40, offset=(0.0, 0.0)):
+    sx, sy = 1796.0 + offset[0], 679.0 + offset[1]
+    cam = SimCamera(star_xy=(sx, sy), jitter_px=0.0, drift_px_per_s=0.0, seed=seed)
+    cam.set_region(1480, 440, 640, 480)
+    x, y = 1796 - 1480, 679 - 440
+    cube = np.stack([cam.grab()[1][y - r:y + r + 1, x - r:x + r + 1] for _ in range(n)])
+    return cube, np.tile((r + offset[0], r + offset[1]), (n, 1))
+
+
+def test_correlate_cube_accuracy():
+    errs = []
+    for i, off in enumerate([(fx, fy) for fx in (-0.4, -0.2, 0.0, 0.2, 0.4) for fy in (-0.3, 0.1, 0.45)]):
+        cube, truth = _sim_cutouts(seed=10 + i, n=20, offset=off)
+        c = star.correlate_cube(cube, 40, 40)
+        assert (c['snr'] > 20).all()
+        errs.append(np.stack([c['x'], c['y']], axis=1) - truth)
+    errs = np.concatenate(errs)
+    assert np.abs(errs.mean(0)).max() < 0.03        # no bias, nor pixel-phase dependent error
+    assert np.abs(errs).max() < 0.2
+    assert errs.std(0).max() < 0.05
+
+
+def test_correlate_cube_stays_near_guess():
+    cube, truth = _sim_cutouts(seed=11, n=8)
+    cube = cube.copy()
+    cube[:, 2:5, 2:5] = 255                          # a brighter blob far from the star
+    c = star.correlate_cube(cube, 40, 40, reach=10)
+    assert np.abs(c['x'] - truth[:, 0]).max() < 0.1
+    assert star.measure_cube(cube)['x'].max() < 10   # whereas the full-cutout search takes the blob
+
+
+def test_correlate_cube_rejects_blank_frames():
+    blank = np.random.default_rng(0).normal(12, 3, (16, 81, 81)).clip(0, 255).astype(np.uint8)
+    assert (star.correlate_cube(blank, 40, 40)['snr'] < 5).all()
+
+
+def test_inliers_clip_outliers():
+    from cyclop import seeing
+    rng = np.random.default_rng(1)
+    t = np.arange(3000) / 132.0
+    x, y = rng.normal(0, 0.3, 3000) + 0.1 * t, rng.normal(0, 0.3, 3000)
+    x[100], y[2000] = 25.0, -20.0
+    keep = seeing.inliers(t, x, y)
+    assert not keep[100] and not keep[2000] and keep.sum() >= 2990
+    assert seeing.inliers(t, x, y, clip=None).all()

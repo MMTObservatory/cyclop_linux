@@ -56,6 +56,24 @@ def remove_drift(t, v, detrend=1):
     return v - np.polyval(np.polyfit(tc, v, detrend), tc)
 
 
+def inliers(t, x, y, detrend=1, clip=5.0):
+    """
+    Samples whose drift-removed position lies within `clip` robust standard deviations (1.4826 *
+    MAD) of the median on both axes; all True when `clip` is None. A frame where the centroid
+    landed on noise or a cosmic ray is far out in the tails and would dominate the variance.
+    """
+    keep = np.ones(len(t), dtype=bool)
+    if clip is None:
+        return keep
+    for v in (x, y):
+        res = remove_drift(t, v, detrend)
+        dev = np.abs(res - np.median(res))
+        mad = 1.4826 * np.median(dev)
+        if mad > 0:
+            keep &= dev <= clip * mad
+    return keep
+
+
 def axis_seeing(sigma):
     """Seeing from the image motion along one axis, in arcsec."""
     return K_LOCAL * sigma ** 1.2
