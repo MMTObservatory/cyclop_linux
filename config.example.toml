@@ -23,7 +23,7 @@ xcorr_min_snr = 5.0
 
 [measurement]
 n_samples = 3000
-max_zenith_seeing = 7.0
+max_zenith_seeing = 15.0     # arcsec; larger values are discarded
 detrend = 1
 clip = 5.0                   # robust-sigma outlier cut per block; 0 keeps every sample
 chunk_frames = 256           # frames centroided together while the next chunk is acquired

@@ -33,13 +33,13 @@ DEFAULTS = {
         'xcorr_min_snr': 5.0,         # correlation peak / its noise to accept a frame
         'box': 10,                    # moments centroid half-width, px
         'search': 40,                 # search radius around the previous position in the ROI, px
-        'max_fwhm': 8.0,
+        'max_fwhm': 12.0,             # px (moments, biased high); ~9 px mean at 15" zenith seeing
         'recenter_margin': 120,       # move the ROI when the star is closer than this to an edge, px
         'confirm_frames': 3,          # consecutive full-frame detections needed before tracking
     },
     'measurement': {
         'n_samples': 3000,
-        'max_zenith_seeing': 7.0,     # arcsec; larger values are discarded
+        'max_zenith_seeing': 15.0,    # arcsec; larger values are discarded (15" has been seen at the site)
         'detrend': 1,                 # polynomial degree removed from x(t), y(t)
         'clip': 5.0,                  # drop samples this many robust sigmas out; 0 keeps all
         'lost_timeout': 30.0,         # s without a valid centroid before searching full frame again
