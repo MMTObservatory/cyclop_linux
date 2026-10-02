@@ -11,12 +11,14 @@ max_sun_alt = -5.0
 address = "192.168.2.59"
 exposure_us = 3906.25        # 1/256 s
 gain = 12.43                 # dB (camera range 0-15)
-frame_rate = 60.0
+frame_rate = 132.0           # max for the 640x480 region; clipped to what each region allows
 
 [measurement]
 n_samples = 3000
 max_zenith_seeing = 7.0
 detrend = 1
+chunk_frames = 256           # frames centroided together while the next chunk is acquired
+chunk_seconds = 2.0
 
 [output]
 data_dir = "~/cyclop_data"

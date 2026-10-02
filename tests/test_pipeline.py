@@ -97,3 +97,48 @@ def test_frame_id_gaps():
     assert (cam.delivered, cam.dropped) == (6, 3)
     cam._count(2)                                   # out of order / restarted: not counted
     assert cam.dropped == 3
+
+
+def test_measure_cube_matches_measure():
+    cam = SimCamera(seed=8)
+    cam.set_region(1480, 440, 640, 480)
+    r = 40
+    cutouts = []
+    for i in range(64):
+        _, img = cam.grab()
+        x, y = (cam.true_position() - (1480, 440)).astype(int)
+        cutouts.append(img[y - r:y + r + 1, x - r + i % 9 - 4:x + r + 1 + i % 9 - 4])
+    cube = np.stack(cutouts)
+    # blank frames (clouds) must come back as not ok, like measure returning None
+    cube[::10] = np.random.default_rng(0).normal(12, 2, cube[::10].shape).clip(0, 255)
+    res = star.measure_cube(cube)
+    for i, c in enumerate(cube):
+        s = star.measure(c)
+        assert res['ok'][i] == (s is not None)
+        if s is not None:
+            for k in ('x', 'y', 'flux', 'peak', 'fwhm', 'snr', 'n_saturated'):
+                assert res[k][i] == pytest.approx(getattr(s, k), rel=1e-5, abs=1e-6), k
+
+
+def test_acquirer_chunks():
+    from cyclop.camera import Acquirer
+    cam = SimCamera(seed=9)
+    cam.set_region(1480, 440, 640, 480)
+    acq = Acquirer(cam, center=(1796, 679), radius=40, chunk_frames=50, n_chunks=2).start()
+    try:
+        first = acq.get(timeout=10)
+        assert first.n == 50 and first.cube.shape == (50, 81, 81)
+        assert (np.diff(first.t) > 0).all()
+        assert (first.x0 == 1796 - 40).all() and (first.y0 == 679 - 40).all()
+        acq.center = (2500, 0)                     # outside the region: cutouts stay inside it
+        acq.release(first)
+        for _ in range(3):                         # chunks filled before the move may still come
+            chunk = acq.get(timeout=10)
+            moved = chunk.x0[-1] == 1480 + 640 - 81
+            acq.release(chunk)
+            if moved:
+                break
+        assert moved and chunk.y0[-1] == 440
+    finally:
+        acq.stop()
+    assert not acq._thread.is_alive()

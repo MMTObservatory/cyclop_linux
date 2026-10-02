@@ -10,9 +10,12 @@ Polaris' image motion, and publishes seeing straight to redis.
 
 1. When the Sun is below `max_sun_alt` (-5°), it grabs full frames (2592×1944) until Polaris is
    detected in several consecutive frames.
-2. It switches to a 640×480 region around the star and centroids every frame (~60 fps), moving
+2. It switches to a 640×480 region around the star and centroids every frame (132 fps), moving
    the region when the star drifts near an edge. If the star is lost for `lost_timeout` s
-   (clouds), it goes back to full-frame searching.
+   (clouds), it goes back to full-frame searching. Acquisition and analysis run in parallel: a
+   thread copies an 81×81 cutout around the star from each frame into chunks of up to 256 frames
+   (`chunk_frames`, or `chunk_seconds`), and the main loop centroids a whole chunk at once with
+   vectorized numpy (about 0.15 ms per frame) while the next one fills.
 3. Every `n_samples` (3000) centroids, it removes the slow drift of Polaris (linear fit in time)
    and computes:
 
@@ -60,7 +63,7 @@ so frames that wait in the queue while the analysis catches up keep their true t
 camera produced but the analysis never saw (queue full, incomplete) are counted from gaps in the
 GigE Vision frame ids. Every block's log line reports the processed rate, the camera rate, the
 percentage dropped and the mean analysis time per frame, which must stay under the camera's frame
-period (about 7.5 ms for the 640×480 tracking region) to use every frame.
+period (about 7.5 ms at the 640×480 region's maximum of 132 fps) to use every frame.
 
 ## Web interface
 

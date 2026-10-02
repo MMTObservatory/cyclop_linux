@@ -17,6 +17,8 @@ processing does not distort them; frames the camera produced but we never got co
 
 import logging
 import math
+import queue
+import threading
 import time
 
 import numpy as np
@@ -171,6 +173,8 @@ class SimCamera:
     tip-tilt jitter of known rms, plus background and read noise.
     """
 
+    NOISE_PAD = 64
+
     def __init__(self, sensor_size=(2592, 1944), star_xy=(1796.0, 679.0), fwhm=2.2, peak=150.0,
                  jitter_px=0.15, drift_px_per_s=0.15, background=12.0, noise=2.0, frame_rate=60.0,
                  realtime=False, drop_fraction=0.0, seed=None):
@@ -188,6 +192,7 @@ class SimCamera:
         self.delivered = 0
         self.dropped = 0
         self.rng = np.random.default_rng(seed)
+        self._noise = None
         self.region = (0, 0, *sensor_size)
         self.running = False
         self.t = 0.0
@@ -206,6 +211,16 @@ class SimCamera:
     def stop(self):
         self.running = False
 
+    def _noise_frame(self, h, w):
+        """Unit Gaussian noise: a random window of a precomputed field (drawing fresh noise for
+        every frame took longer than the analysis we want to exercise)."""
+        if self._noise is None:
+            sw, sh = self.sensor_size
+            self._noise = self.rng.standard_normal((sh + self.NOISE_PAD, sw + self.NOISE_PAD),
+                                                   dtype=np.float32)
+        dy, dx = self.rng.integers(0, self.NOISE_PAD, 2)
+        return self._noise[dy:dy + h, dx:dx + w]
+
     def true_position(self):
         return self.star_xy + self.drift * self.t
 
@@ -218,7 +233,7 @@ class SimCamera:
             self.t += 1.0 / self.frame_rate
         self.delivered += 1
         x0, y0, w, h = self.region
-        img = self.background + self.noise * self.rng.standard_normal((h, w))
+        img = self.background + self.noise * self._noise_frame(h, w)
         if self.visible:
             sx, sy = self.true_position() + self.rng.normal(0, self.jitter_px, 2)
             lx, ly = sx - x0, sy - y0
@@ -237,3 +252,113 @@ class SimCamera:
 
     def close(self):
         pass
+
+
+class Chunk:
+    """A block of frames from `Acquirer`: cutouts around the star and where they came from."""
+
+    def __init__(self, n, size):
+        self.cube = np.zeros((n, size, size), dtype=np.uint8)
+        self.t = np.zeros(n)
+        self.x0 = np.zeros(n, dtype=int)     # full-frame position of each cutout's corner
+        self.y0 = np.zeros(n, dtype=int)
+        self.delivered = np.zeros(n, dtype=np.int64)   # camera's running counts after each frame
+        self.dropped = np.zeros(n, dtype=np.int64)
+        self.n = 0                            # frames filled
+
+
+class Acquirer:
+    """
+    Grabs frames on a thread of its own and fills chunks of cutouts around `center`, so the
+    analysis of one chunk overlaps the acquisition of the next.
+
+    Frames are only copied into a cutout (2 * radius + 1 square) here; the analysis gets each
+    chunk from `get()` and hands it back with `release()`. If the analysis falls behind and all
+    `n_chunks` are in use, grabbing pauses, frames pile up in the camera's own buffers and any
+    it cannot hold are counted as dropped by the camera. A chunk is handed over when full or
+    `max_seconds` after its first frame, so a slow camera still delivers chunks regularly.
+    """
+
+    def __init__(self, camera, center, radius=40, chunk_frames=256, n_chunks=3, max_seconds=2.0):
+        self.camera = camera
+        self.center = center                  # full-frame (x, y); updated by the analysis
+        self.radius = radius
+        self.max_seconds = max_seconds
+        size = 2 * radius + 1
+        self._free = queue.Queue()
+        for _ in range(n_chunks):
+            self._free.put(Chunk(chunk_frames, size))
+        self._full = queue.Queue()
+        self.latest = None                    # (t, image, region) of the newest frame
+        self.error = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="acquire", daemon=True)
+
+    def start(self):
+        self.camera.start()
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=5)
+
+    def get(self, timeout=None):
+        """Next filled chunk, or None after `timeout` s (re-raises an acquisition error)."""
+        try:
+            chunk = self._full.get(timeout=timeout)
+        except queue.Empty:
+            chunk = None
+        if self.error is not None:
+            raise RuntimeError("acquisition failed") from self.error
+        return chunk
+
+    def release(self, chunk):
+        chunk.n = 0
+        self._free.put(chunk)
+
+    def _origin(self, region):
+        """Corner of the cutout around `center`, kept inside the camera region."""
+        rx, ry, rw, rh = region
+        size = 2 * self.radius + 1
+        x0 = int(round(self.center[0])) - self.radius
+        y0 = int(round(self.center[1])) - self.radius
+        return (min(max(x0, rx), rx + rw - size), min(max(y0, ry), ry + rh - size))
+
+    def _run(self):
+        try:
+            chunk, started = None, 0.0
+            while not self._stop.is_set():
+                if chunk is None:
+                    try:
+                        chunk = self._free.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+                frame = self.camera.grab(timeout_s=0.5)
+                now = time.monotonic()
+                if frame is not None:
+                    t, img = frame
+                    region = tuple(self.camera.region)
+                    self.latest = (t, img, region)
+                    x0, y0 = self._origin(region)
+                    i = chunk.n
+                    lx, ly = x0 - region[0], y0 - region[1]
+                    chunk.cube[i] = img[ly:ly + chunk.cube.shape[1], lx:lx + chunk.cube.shape[2]]
+                    chunk.t[i], chunk.x0[i], chunk.y0[i] = t, x0, y0
+                    chunk.delivered[i] = getattr(self.camera, 'delivered', 0)
+                    chunk.dropped[i] = getattr(self.camera, 'dropped', 0)
+                    if i == 0:
+                        started = now
+                    chunk.n = i + 1
+                if chunk.n and (chunk.n == len(chunk.t) or now - started >= self.max_seconds):
+                    self._full.put(chunk)
+                    chunk = None
+                elif frame is None and chunk.n == 0:
+                    # nothing arriving: hand over an empty chunk so the analysis notices
+                    self._full.put(chunk)
+                    chunk = None
+        except Exception as e:
+            log.exception("Acquisition thread failed")
+            self.error = e
+            self._full.put(None)

@@ -19,7 +19,7 @@ DEFAULTS = {
         'address': '192.168.2.59',    # None/"" = first camera found
         'exposure_us': 3906.25,       # Windows "Exposure=-8" is 2**-8 s
         'gain': 12.43,                # dB; what the Windows setting "Gain=120" left on the camera
-        'frame_rate': 60.0,
+        'frame_rate': 132.0,          # fps; the 640x480 tracking region's maximum (clipped per region)
         'roi_width': 640,
         'roi_height': 480,
     },
@@ -37,6 +37,8 @@ DEFAULTS = {
         'detrend': 1,                 # polynomial degree removed from x(t), y(t)
         'lost_timeout': 30.0,         # s without a valid centroid before searching full frame again
         'search_interval': 10.0,      # s between full-frame search attempts
+        'chunk_frames': 256,          # frames centroided together while the next chunk is acquired
+        'chunk_seconds': 2.0,         # hand a chunk over after this long even if not full
     },
     'output': {
         'data_dir': '~/cyclop_data',
