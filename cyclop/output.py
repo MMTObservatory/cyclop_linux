@@ -5,10 +5,13 @@ motion files, and redis keys matching what minicyclop's tcs_logger published.
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import numpy as np
+
+from cyclop import seeing
 from cyclop.sun import julian_date
 
 log = logging.getLogger(__name__)
@@ -21,6 +24,37 @@ def _windows_time(t):
     return f"{t.month}/{t.day}/{t.year} {t.strftime('%I').lstrip('0') or '12'}:{t:%M:%S %p}"
 
 
+def _windows_float(v):
+    """' 1.56566504814043E+0000' / '-1.95402344100330E-0001', as in the Windows motion files."""
+    m, e = f"{v:.14E}".split("E")
+    return f"{m}E{e[0]}{int(e[1:]):04d}".rjust(23)
+
+
+MOTION_HEADER = ("Date (sec)               PosX  (pixel)            PosY (Pixel)             "
+                 "<FWHM>=(FWHMX+FWHMY)/2")
+
+
+def format_motion(t, x, y, fwhm):
+    """Body of a Windows-style *_Motion.txt file: one row per sample, header line last, CRLF."""
+    rows = ["  ".join(_windows_float(v) for v in row) for row in zip(t, x, y, fwhm)]
+    return "\r\n".join(rows + [MOTION_HEADER]) + "\r\n"
+
+
+def format_results(result):
+    """Body of a Windows-style *_results.txt file."""
+    sx, sy = result['sigma_x'], result['sigma_y']
+    lines = [
+        f"Rms X motion (pixels) : {sx:.3f}",
+        f"Rms Y motion (pixels) : {sy:.3f}",
+        f"X seeing (arcsec)     : {seeing.axis_seeing(sx):.3f}",
+        f"Y seeing (arcsec)     : {seeing.axis_seeing(sy):.3f}",
+        f"Total seeing (arcsec) : {result['local']:.3f}",
+        f"Zenith seeing (arcsec): {result['zenith']:.3f}",
+        f"Zenith R0 (mm)        : {result['r0']:.1f}",
+    ]
+    return "\r\n".join(lines) + "\r\n"
+
+
 def format_line(t_utc, flux, zenith_seeing, r0, tz):
     """One Seeing_Data.txt line: UT | local | JD | flux | zenith seeing | r0."""
     return (f"{_windows_time(t_utc)} | {_windows_time(t_utc.astimezone(tz))} | "
@@ -28,11 +62,12 @@ def format_line(t_utc, flux, zenith_seeing, r0, tz):
 
 
 class FileWriter:
-    def __init__(self, data_dir, tz="America/Phoenix", save_motion=False):
+    def __init__(self, data_dir, tz="America/Phoenix", save_motion=False, detrend=1):
         self.data_dir = Path(data_dir).expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.tz = ZoneInfo(tz)
         self.save_motion = save_motion
+        self.detrend = detrend
 
     def write(self, t_utc, flux, result, samples=None):
         line = format_line(t_utc, flux, result['zenith'], result['r0'], self.tz)
@@ -44,12 +79,16 @@ class FileWriter:
         os.replace(tmp, last)
 
         if self.save_motion and samples is not None:
-            t0 = samples['t'][0]
-            start = datetime.fromtimestamp(t0, timezone.utc).astimezone(self.tz)
-            name = self.data_dir / f"{start:%Y-%m-%d-%Hh%Mm%Ss}_motion.txt"
-            with open(name, "w") as f:
-                for t, x, y, fw in zip(samples['t'], samples['x'], samples['y'], samples['fwhm']):
-                    f.write(f"{t - t0:.4f}\t{x:.4f}\t{y:.4f}\t{fw:.3f}\n")
+            # Like the Windows software: named by the block's end time in UT, times relative to the
+            # first sample, positions with the drift removed (so their rms is the reported sigma).
+            t = np.asarray(samples['t'], dtype=float)
+            stem = self.data_dir / f"{t_utc.astimezone(timezone.utc):%Y-%m-%d-%Hh%Mm%Ss}"
+            x = seeing.remove_drift(t, samples['x'], self.detrend)
+            y = seeing.remove_drift(t, samples['y'], self.detrend)
+            with open(f"{stem}_Motion.txt", "w", newline="") as f:
+                f.write(format_motion(t - t[0], x, y, samples['fwhm']))
+            with open(f"{stem}_results.txt", "w", newline="") as f:
+                f.write(format_results(result))
 
 
 class RedisPublisher:

@@ -2,7 +2,7 @@
 Command line entry point.
 
     cyclop run [-c config.toml] [--simulate] [--ignore-sun] [--no-redis] [--no-web] [-n N]
-    cyclop replay MOTION_FILE [...]      reduce Windows *_motion.txt files with this code
+    cyclop replay MOTION_FILE [...]      reduce Windows *_Motion.txt files with this code
     cyclop camera-info [--address IP]    list camera features through Aravis
 """
 
@@ -46,7 +46,8 @@ def cmd_run(args):
 
     out = cfg['output']
     writer = FileWriter(args.data_dir or out['data_dir'], tz=cfg['site']['timezone'],
-                        save_motion=out['save_motion'])
+                        save_motion=out['save_motion'],
+                        detrend=cfg['measurement']['detrend'])
     publisher = None
     if cfg['redis']['enabled'] and not args.no_redis:
         publisher = RedisPublisher(host=cfg['redis']['host'], port=cfg['redis']['port'])

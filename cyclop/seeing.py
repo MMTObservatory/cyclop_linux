@@ -43,19 +43,27 @@ def motion_sigma(t, x, y, detrend=1):
     (float, float)
         sigma_x, sigma_y in pixels.
     """
+    return tuple(float(np.std(remove_drift(t, v, detrend))) for v in (x, y))
+
+
+def remove_drift(t, v, detrend=1):
+    """Residuals of v(t) about a polynomial fit of degree `detrend` (None: about the mean)."""
     t = np.asarray(t, dtype=float)
-    out = []
-    for v in (np.asarray(x, dtype=float), np.asarray(y, dtype=float)):
-        if detrend is not None:
-            tc = t - t.mean()
-            v = v - np.polyval(np.polyfit(tc, v, detrend), tc)
-        out.append(float(np.std(v)))
-    return tuple(out)
+    v = np.asarray(v, dtype=float)
+    if detrend is None:
+        return v - v.mean()
+    tc = t - t.mean()
+    return v - np.polyval(np.polyfit(tc, v, detrend), tc)
+
+
+def axis_seeing(sigma):
+    """Seeing from the image motion along one axis, in arcsec."""
+    return K_LOCAL * sigma ** 1.2
 
 
 def local_seeing(sigma_x, sigma_y):
     """Seeing along the line of sight to Polaris, in arcsec."""
-    return K_LOCAL * (sigma_x ** 1.2 + sigma_y ** 1.2) / 2
+    return (axis_seeing(sigma_x) + axis_seeing(sigma_y)) / 2
 
 
 def zenith_factor(latitude_deg):

@@ -20,7 +20,7 @@ detrend = 1
 
 [output]
 data_dir = "~/cyclop_data"
-save_motion = false
+save_motion = false   # also write Windows-style *_Motion.txt / *_results.txt per block
 
 [web]
 enabled = true

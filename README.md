@@ -48,7 +48,7 @@ cp config.example.toml config.toml
 cyclop -c config.toml camera-info                 # check the camera is reachable
 cyclop -c config.toml run --simulate --ignore-sun --no-redis -n 2    # dry run with a fake star
 cyclop -c config.toml run                         # the real thing
-cyclop replay ~/path/to/*_motion.txt              # reduce Windows motion files with this code
+cyclop replay ~/path/to/*_Motion.txt              # reduce Windows motion files with this code
 ```
 
 `systemd/cyclop.service` runs it as a user service.
