@@ -46,7 +46,8 @@ def cmd_run(args):
 
         def factory():
             return AravisCamera(address=cam_cfg['address'] or None, exposure_us=cam_cfg['exposure_us'],
-                                gain=cam_cfg['gain'], frame_rate=cam_cfg['frame_rate'])
+                                gain=cam_cfg['gain'], frame_rate=cam_cfg['frame_rate'],
+                                n_buffers=cam_cfg['n_buffers'], socket_buffer_mb=cam_cfg['socket_buffer_mb'])
 
     out = cfg['output']
     writer = FileWriter(args.data_dir or out['data_dir'], tz=cfg['site']['timezone'],

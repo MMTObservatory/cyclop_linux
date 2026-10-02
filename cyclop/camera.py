@@ -31,7 +31,8 @@ class AravisCamera:
     STREAM_COUNTERS = ('n_underruns', 'n_failures', 'n_missing_frames', 'n_missing_packets',
                        'n_resent_packets')
 
-    def __init__(self, address=None, exposure_us=3906.0, gain=12.5, frame_rate=None, n_buffers=32):
+    def __init__(self, address=None, exposure_us=3906.0, gain=12.5, frame_rate=None, n_buffers=128,
+                 socket_buffer_mb=8.0):
         import gi
         gi.require_version('Aravis', '0.8')
         from gi.repository import Aravis
@@ -44,6 +45,10 @@ class AravisCamera:
         if self.cam.is_gv_device():
             self.cam.gv_auto_packet_size()
         self.n_buffers = n_buffers
+        # UDP receive buffer for the GigE stream. Aravis's automatic size is about one frame, which
+        # a host pause of a few tens of ms overflows (lost packets, resends, incomplete frames);
+        # the kernel caps it at net.core.rmem_max
+        self.socket_buffer_mb = socket_buffer_mb
         self.frame_rate = frame_rate
         self.stream = None
         self.running = False
@@ -105,6 +110,9 @@ class AravisCamera:
             return
         Aravis = self._arv
         self.stream = self.cam.create_stream(None, None)
+        if self.socket_buffer_mb and isinstance(self.stream, Aravis.GvStream):
+            self.stream.set_property('socket-buffer', Aravis.GvStreamSocketBuffer.FIXED)
+            self.stream.set_property('socket-buffer-size', int(self.socket_buffer_mb * 2 ** 20))
         payload = self.cam.get_payload()
         for _ in range(self.n_buffers):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(payload))

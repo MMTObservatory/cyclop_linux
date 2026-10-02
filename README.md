@@ -102,3 +102,13 @@ config file; the web interface never changes anything.
 - The camera is at 192.168.2.59 on the dedicated 192.168.2.0/24 interface. Under WSL2 this works
   with `networkingMode=mirrored` in `.wslconfig`.
 - Jumbo frames are not required for the 640×480 tracking region but help full-frame searches.
+- Give the GigE stream room to ride out host pauses: cyclop asks for an 8 MB UDP receive buffer
+  (`socket_buffer_mb`), which the kernel caps at `net.core.rmem_max`, so raise that (and the
+  input backlog), e.g. in `/etc/sysctl.d/90-cyclop.conf`:
+
+  ```
+  net.core.rmem_max = 16777216
+  net.core.netdev_max_backlog = 5000
+  ```
+
+  With the ~200 KB default, WSL2 lost 20-50% of frames to missing packets.

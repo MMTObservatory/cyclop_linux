@@ -12,6 +12,8 @@ address = "192.168.2.59"
 exposure_us = 3906.25        # 1/256 s
 gain = 12.5                  # dB (camera range 0-15); peak ~140 on Polaris at 1/256 s, little saturation
 frame_rate = 132.0           # max for the 640x480 region; clipped to what each region allows
+n_buffers = 128              # frame buffers queued with Aravis
+socket_buffer_mb = 8.0       # UDP receive buffer; needs net.core.rmem_max >= this (see README)
 
 [star]
 centroid = "xcorr"           # Gaussian cross-correlation; "moments" for the old thresholded centroid
