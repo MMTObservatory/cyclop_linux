@@ -66,7 +66,41 @@ cyclop -c config.toml run --gain 10 --exposure 2000   # try other camera setting
 cyclop replay ~/path/to/*_Motion.txt              # reduce Windows motion files with this code
 ```
 
-`systemd/cyclop.service` runs it as a user service.
+## Running as a service
+
+In production cyclop runs unattended as a systemd user service (`systemd/cyclop.service`), reading
+`~/cyclop_linux/config.toml`. It idles in daylight and starts measuring once the Sun is below
+`max_sun_alt`, so it can be started or restarted at any time of day. systemd restarts it 30 s
+after a crash. Install:
+
+```
+cp config.example.toml config.toml                # then edit; at least [output] and [redis]
+mkdir -p ~/.config/systemd/user
+cp systemd/cyclop.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now cyclop
+sudo loginctl enable-linger $USER                 # start at boot without a login session
+```
+
+Stop any other program using the camera first (the Windows software, or a `cyclop run` started by
+hand). Day-to-day:
+
+```
+systemctl --user status cyclop
+systemctl --user restart cyclop                   # after editing config.toml or updating the code
+systemctl --user stop cyclop                      # frees the camera
+journalctl --user -u cyclop -f                    # follow the log
+journalctl --user -u cyclop --since "18:00"
+```
+
+Under WSL2 the service runs only while WSL is up. That needs `systemd=true` in `/etc/wsl.conf`
+and something on the Windows side that starts WSL and keeps it running. At the MMTO:
+
+- Windows logs in automatically after a reboot.
+- Windows Terminal is a startup app with Ubuntu as its default profile.
+- A `wslstart.cmd` in the user's Startup folder runs `@start /b wsl --exec dbus-launch true`, which
+  keeps WSL running if the terminal is closed.
+- `.wslconfig` sets `vmIdleTimeout=-1`.
 
 ## Frame timing
 
@@ -97,8 +131,8 @@ config file; the web interface never changes anything.
 
 ## Notes
 
-- Only one program can control the camera at a time: stop `SeeingMonitor_Cyclop.exe` before
-  running `cyclop` against the real camera.
+- Only one program can control the camera at a time: stop `SeeingMonitor_Cyclop.exe` (or the
+  `cyclop` service) before running another `cyclop` against the real camera.
 - The camera is at 192.168.2.59 on the dedicated 192.168.2.0/24 interface. Under WSL2 this works
   with `networkingMode=mirrored` in `.wslconfig`.
 - Jumbo frames are not required for the 640×480 tracking region but help full-frame searches.
