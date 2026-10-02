@@ -190,6 +190,7 @@ class WebState:
             recent = list(mon.recent)[-300:]
             last = mon.results[-1] if mon.results else None
             last_ok = next((r for r in reversed(mon.results) if r.get('accepted', True)), None)
+            cam_stats = list(mon.cam_stats)
         fps = None
         if len(recent) > 10:
             ts = [r[0] for r in recent]
@@ -214,6 +215,7 @@ class WebState:
                 'region': list(mon.camera.region) if mon.camera else None,
             },
             'fps': fps,
+            'frames': self.frame_counts(cam_stats, mon.clock()),
             'block': {'n': len(mon.samples['t']), 'target': ms['n_samples']},
             'n_results': mon.n_results,
             'max_zenith_seeing': ms['max_zenith_seeing'],
@@ -233,10 +235,28 @@ class WebState:
                     'r0': _num(r['r0'], 1), 'r0_local': _num(seeing.r0_mm(r['local']), 1),
                     'sigma_x': _num(r['sigma_x'], 4), 'sigma_y': _num(r['sigma_y'], 4),
                     'flux': _num(r['flux'], 1), 'fwhm': _num(r['fwhm'], 3), 'rate': _num(r['rate'], 1),
+                    'camera_fps': _num(r.get('camera_fps'), 1), 'drop_fraction': _num(r.get('drop_fraction'), 4),
+                    'proc_ms': _num(r.get('proc_ms'), 3),
                 }
         pub = mon.publisher
         if pub is not None:
             out['redis'] = {'ok': getattr(pub, 'last_ok', None), 'error': getattr(pub, 'last_error', None)}
+        return out
+
+    @staticmethod
+    def frame_counts(cam_stats, clock_now):
+        """Camera frame rate and dropped fraction over the last ~10 s, plus totals since opening."""
+        if not cam_stats:
+            return None
+        t1, last = cam_stats[-1]
+        out = {'totals': last, 'camera_fps': None, 'drop_fraction': None}
+        if len(cam_stats) > 1 and clock_now - t1 < 5:
+            t0, first = cam_stats[0]
+            delivered = last['delivered'] - first['delivered']
+            dropped = last['dropped'] - first['dropped']
+            if delivered + dropped > 0 and t1 > t0:
+                out['camera_fps'] = (delivered + dropped) / (t1 - t0)
+                out['drop_fraction'] = dropped / (delivered + dropped)
         return out
 
     def history_rows(self, days=31):

@@ -41,6 +41,7 @@ class Monitor:
         self.frame = None             # (timestamp, image, region) of the last grabbed frame
         self.star = None              # (timestamp, Star in full-frame pixels) of the last valid centroid
         self.recent = deque(maxlen=cfg['measurement']['n_samples'])  # (t, x, y, fwhm, flux)
+        self.cam_stats = deque(maxlen=11)   # (clock, camera.stats()) about once a second
         self.pos = None               # last star position, full-frame pixels
         self.last_valid = None
         self.last_search = None
@@ -50,6 +51,8 @@ class Monitor:
 
     def _reset_samples(self):
         self.samples = {'t': [], 'x': [], 'y': [], 'fwhm': [], 'flux': []}
+        self.proc_times = []          # seconds spent on each frame after it was grabbed
+        self.block_stats = None       # camera.stats() at the start of the block
 
     def _set_state(self, state):
         if state != self.state:
@@ -141,6 +144,8 @@ class Monitor:
         ms = self.cfg['measurement']
         cam = self.camera
         frame = cam.grab(timeout_s=1.0)
+        t_grabbed = time.perf_counter()
+        self._update_cam_stats()
         s = None
         if frame is not None:
             t, img = frame
@@ -162,6 +167,8 @@ class Monitor:
         self.pos = (x, y)
         self.last_valid = self.clock()
         smp = self.samples
+        if not smp['t']:
+            self.block_stats = cam.stats()
         smp['t'].append(t)
         smp['x'].append(x)
         smp['y'].append(y)
@@ -176,19 +183,43 @@ class Monitor:
             log.info(f"Tracking change position -> star at X={x:.0f} Y={y:.0f}")
             self._set_roi(x, y)
 
+        self.proc_times.append(time.perf_counter() - t_grabbed)
         if len(smp['t']) >= ms['n_samples']:
             self.finish_block()
 
+    def _update_cam_stats(self):
+        now = self.clock()
+        if not self.cam_stats or now - self.cam_stats[-1][0] >= 1.0:
+            stats = self.camera.stats()
+            with self.lock:
+                self.cam_stats.append((now, stats))
+
+    def _frame_stats(self, span):
+        """Dropped frames, camera frame rate and processing time over the block just finished."""
+        out = {'proc_ms': 1e3 * float(np.mean(self.proc_times)) if self.proc_times else None,
+               'dropped': None, 'drop_fraction': None, 'camera_fps': None}
+        if self.block_stats is not None and self.camera is not None:
+            now = self.camera.stats()
+            delivered = now['delivered'] - self.block_stats['delivered']
+            dropped = now['dropped'] - self.block_stats['dropped']
+            if delivered + dropped > 0:
+                out.update(dropped=dropped, drop_fraction=dropped / (delivered + dropped),
+                           camera_fps=(delivered + dropped) / span if span > 0 else None)
+        return out
+
     def finish_block(self):
         smp = {k: np.asarray(v) for k, v in self.samples.items()}
+        span = smp['t'][-1] - smp['t'][0]
+        frames = self._frame_stats(span)
         self._reset_samples()
         t_end = self.now()
         lat = self.cfg['site']['latitude']
         r = seeing.compute(smp['t'], smp['x'], smp['y'], lat, detrend=self.cfg['measurement']['detrend'])
         flux = float(np.mean(smp['flux']))
-        rate = (len(smp['t']) - 1) / (smp['t'][-1] - smp['t'][0])
+        rate = (len(smp['t']) - 1) / span
         accepted = r['zenith'] <= self.cfg['measurement']['max_zenith_seeing']
-        r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end, accepted=accepted)
+        r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end, accepted=accepted,
+                 **frames)
         with self.lock:
             self.results.append(r)
         self.n_results += 1
@@ -199,11 +230,18 @@ class Monitor:
             return
         log.info(f"Seeing Zen. Ok : {r['zenith']:.2f} arcsec (local {r['local']:.2f}, "
                  f"sigma {r['sigma_x']:.3f}/{r['sigma_y']:.3f} px, fwhm {r['fwhm']:.2f} px, "
-                 f"flux {flux:.0f}, {rate:.1f} fps)")
+                 f"flux {flux:.0f}, {rate:.1f} fps{self._drop_text(r)})")
         if self.writer:
             self.writer.write(t_end, flux, r, samples=smp)
         if self.publisher:
             self.publisher.publish(t_end, flux, r)
+
+    @staticmethod
+    def _drop_text(r):
+        if r['drop_fraction'] is None:
+            return ""
+        return (f", dropped {100 * r['drop_fraction']:.1f}% of {r['camera_fps']:.1f} fps, "
+                f"{r['proc_ms']:.2f} ms/frame")
 
     # --- main loop -----------------------------------------------------------------------------
 

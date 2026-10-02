@@ -91,6 +91,8 @@
           <dt>Measurements</dt><dd><span id="c-n">--</span> / <span id="c-target">--</span></dd>
           <dt></dt><dd><progress id="c-prog" max="1" value="0"></progress></dd>
           <dt>Frame rate</dt><dd id="c-fps">--</dd>
+          <dt>Camera rate</dt><dd id="c-camfps">--</dd>
+          <dt>Dropped</dt><dd id="c-drop">--</dd>
           <dt>Results</dt><dd id="c-results">--</dd>
         </dl>
       </fieldset>
@@ -180,6 +182,8 @@
           <dt>Mean flux</dt><dd id="b-flux">--</dd>
           <dt>Mean FWHM</dt><dd id="b-fwhm">--</dd>
           <dt>Frame rate</dt><dd id="b-rate">--</dd>
+          <dt>Dropped</dt><dd id="b-drop">--</dd>
+          <dt>Processing</dt><dd id="b-proc">--</dd>
           <dt>Accepted</dt><dd id="b-acc">--</dd>
         </dl>
       </fieldset>
@@ -322,6 +326,10 @@ function renderStatus() {
   $("c-n").textContent = S.block.n; $("c-target").textContent = S.block.target;
   $("c-prog").value = S.block.n / S.block.target;
   $("c-fps").textContent = S.fps ? `${fmt(S.fps, 1)} fps` : "--";
+  const F = S.frames;
+  $("c-camfps").textContent = F && F.camera_fps ? `${fmt(F.camera_fps, 1)} fps` : "--";
+  $("c-drop").textContent = F && F.drop_fraction != null
+    ? `${fmt(100 * F.drop_fraction, 1)} %  (${F.totals.dropped} of ${F.totals.delivered + F.totals.dropped} total)` : "--";
   $("c-results").textContent = S.n_results;
   $("k-cam").textContent = !cam.open ? "closed" : cam.simulated ? "simulated" : "open";
   const exp = cam.exposure_us;
@@ -366,7 +374,9 @@ function renderStatus() {
   $("b-time").textContent = B ? `${fmtTime(B.time)} (${fmtAge(S.now - B.time)})` : "--";
   $("b-flux").textContent = B ? `${fmt(B.flux, 0)} ADU` : "--";
   $("b-fwhm").textContent = B ? `${fmt(B.fwhm, 2)} px` : "--";
-  $("b-rate").textContent = B ? `${fmt(B.rate, 1)} fps` : "--";
+  $("b-rate").textContent = B ? `${fmt(B.rate, 1)} fps` + (B.camera_fps ? ` of ${fmt(B.camera_fps, 1)}` : "") : "--";
+  $("b-drop").textContent = B && B.drop_fraction != null ? `${fmt(100 * B.drop_fraction, 1)} %` : "--";
+  $("b-proc").textContent = B && B.proc_ms != null ? `${fmt(B.proc_ms, 2)} ms/frame` : "--";
   $("b-acc").textContent = !B ? "--" : B.accepted ? "yes"
     : `no — zenith seeing ${fmt(B.zenith)}" above the ${fmt(S.max_zenith_seeing, 1)}" limit`;
 

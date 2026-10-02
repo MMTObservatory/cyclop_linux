@@ -53,13 +53,23 @@ cyclop replay ~/path/to/*_Motion.txt              # reduce Windows motion files 
 
 `systemd/cyclop.service` runs it as a user service.
 
+## Frame timing
+
+Each frame is timestamped with the host clock when it arrived (Aravis' buffer system timestamp),
+so frames that wait in the queue while the analysis catches up keep their true times. Frames the
+camera produced but the analysis never saw (queue full, incomplete) are counted from gaps in the
+GigE Vision frame ids. Every block's log line reports the processed rate, the camera rate, the
+percentage dropped and the mean analysis time per frame, which must stay under the camera's frame
+period (about 7.5 ms for the 640×480 tracking region) to use every frame.
+
 ## Web interface
 
 `cyclop run` also serves read-only status pages at `http://<host>:8080/` (`[web]` in the config,
 `--web-port`, or `--no-web`). They loosely follow the Windows GUI:
 
 - **Capture**: the live camera frame with the star marked, its histogram, saturated-pixel count,
-  brightest pixel, a zoom on the star, and the camera settings;
+  brightest pixel, a zoom on the star, the camera settings, and the processed versus camera frame
+  rate with the fraction of frames dropped;
 - **Status**: UTC/local/sidereal time, Sun elevation, and the last local and zenith seeing and r0;
 - **Plots**: the Windows "Output results" tabs: zenith seeing and flux versus time (1h to 1M,
   history from `<data_dir>/Seeing_Data.txt` plus any `web.history_files`, such as the Windows

@@ -9,6 +9,10 @@ Both expose the same small interface:
     start() / stop()
     grab(timeout_s) -> (timestamp_s, 2D uint8 ndarray) or None
     region -> (x, y, width, height)
+    stats() -> {'delivered': n, 'dropped': n, ...} counted since the camera was opened
+
+Timestamps are when the frame arrived, not when it was taken off the queue, so a backlog in
+processing does not distort them; frames the camera produced but we never got count as dropped.
 """
 
 import logging
@@ -21,6 +25,10 @@ log = logging.getLogger(__name__)
 
 
 class AravisCamera:
+    # Aravis stream counters reported by stats() (reset whenever a stream is created)
+    STREAM_COUNTERS = ('n_underruns', 'n_failures', 'n_missing_frames', 'n_missing_packets',
+                       'n_resent_packets')
+
     def __init__(self, address=None, exposure_us=3906.0, gain=12.43, frame_rate=None, n_buffers=32):
         import gi
         gi.require_version('Aravis', '0.8')
@@ -37,6 +45,10 @@ class AravisCamera:
         self.frame_rate = frame_rate
         self.stream = None
         self.running = False
+        self.delivered = 0
+        self.dropped = 0
+        self._last_id = None
+        self._stream_totals = dict.fromkeys(self.STREAM_COUNTERS, 0)
 
         self.sensor_size = tuple(self.cam.get_sensor_size())
         self._x_inc = self._increment('OffsetX', 4)
@@ -93,6 +105,7 @@ class AravisCamera:
         for _ in range(self.n_buffers):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(payload))
         self.cam.set_acquisition_mode(Aravis.AcquisitionMode.CONTINUOUS)
+        self._last_id = None
         self.cam.start_acquisition()
         self.running = True
 
@@ -100,6 +113,8 @@ class AravisCamera:
         if not self.running:
             return
         self.cam.stop_acquisition()
+        for k, v in self._stream_counters().items():
+            self._stream_totals[k] += v
         self.stream = None
         self.running = False
 
@@ -114,12 +129,36 @@ class AravisCamera:
                 if buf.get_status() != self._arv.BufferStatus.SUCCESS:
                     log.debug(f"Buffer status {buf.get_status()}")
                     continue
+                self._count(buf.get_frame_id())
                 w, h = buf.get_image_width(), buf.get_image_height()
                 img = np.frombuffer(buf.get_data(), dtype=np.uint8)[:w * h].reshape(h, w).copy()
-                return time.time(), img
+                # host clock when the frame arrived; falls back to now if Aravis did not set it
+                ns = buf.get_system_timestamp()
+                return (ns / 1e9 if ns else time.time()), img
             finally:
                 self.stream.push_buffer(buf)
         return None
+
+    def _count(self, frame_id):
+        """Count the frames missing between this one and the last we delivered."""
+        if self._last_id is not None:
+            gap = frame_id - self._last_id - 1
+            if self._last_id > 0xFFFF - 10000 and frame_id < 10000 and self._last_id <= 0xFFFF:
+                gap %= 0xFFFF          # 16-bit GigE Vision block ids wrap 65535 -> 1
+            if 0 <= gap < 10000:       # anything else is a restart, not lost frames
+                self.dropped += gap
+        self._last_id = frame_id
+        self.delivered += 1
+
+    def _stream_counters(self):
+        if self.stream is None:
+            return dict.fromkeys(self.STREAM_COUNTERS, 0)
+        return {k: int(self.stream.get_info_uint64_by_name(k)) for k in self.STREAM_COUNTERS}
+
+    def stats(self):
+        out = {'delivered': self.delivered, 'dropped': self.dropped}
+        out.update({k: self._stream_totals[k] + v for k, v in self._stream_counters().items()})
+        return out
 
     def close(self):
         self.stop()
@@ -134,7 +173,7 @@ class SimCamera:
 
     def __init__(self, sensor_size=(2592, 1944), star_xy=(1796.0, 679.0), fwhm=2.2, peak=150.0,
                  jitter_px=0.15, drift_px_per_s=0.15, background=12.0, noise=2.0, frame_rate=60.0,
-                 realtime=False, seed=None):
+                 realtime=False, drop_fraction=0.0, seed=None):
         self.sensor_size = sensor_size
         self.star_xy = np.array(star_xy, dtype=float)
         self.sigma = fwhm / 2.3548
@@ -145,6 +184,9 @@ class SimCamera:
         self.noise = noise
         self.frame_rate = frame_rate
         self.realtime = realtime
+        self.drop_fraction = drop_fraction    # chance that each frame is lost before delivery
+        self.delivered = 0
+        self.dropped = 0
         self.rng = np.random.default_rng(seed)
         self.region = (0, 0, *sensor_size)
         self.running = False
@@ -171,6 +213,10 @@ class SimCamera:
         if self.realtime:
             time.sleep(1.0 / self.frame_rate)
         self.t += 1.0 / self.frame_rate
+        while self.drop_fraction and self.rng.random() < self.drop_fraction:
+            self.dropped += 1
+            self.t += 1.0 / self.frame_rate
+        self.delivered += 1
         x0, y0, w, h = self.region
         img = self.background + self.noise * self.rng.standard_normal((h, w))
         if self.visible:
@@ -185,6 +231,9 @@ class SimCamera:
                     -((xx - lx) ** 2 + (yy - ly) ** 2) / (2 * self.sigma ** 2))
         stamp = time.time() if self.realtime else self.t   # wall-clock timestamps when running live
         return stamp, np.clip(img, 0, 255).astype(np.uint8)
+
+    def stats(self):
+        return {'delivered': self.delivered, 'dropped': self.dropped}
 
     def close(self):
         pass

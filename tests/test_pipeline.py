@@ -71,3 +71,29 @@ def test_monitor_handles_lost_star():
     for _ in range(40):
         mon.step(ignore_sun=True)
     assert mon.state == MEASURING
+
+
+def test_monitor_counts_dropped_frames():
+    cfg = copy.deepcopy(config.DEFAULTS)
+    cfg['measurement']['n_samples'] = 1000
+    cam = SimCamera(drop_fraction=0.5, seed=6)
+    mon = Monitor(cfg, lambda: cam, sleep=lambda s: None)
+    mon.run(ignore_sun=True, max_results=1)
+    r = mon.results[0]
+    assert r['drop_fraction'] == pytest.approx(0.5, abs=0.04)
+    assert r['camera_fps'] == pytest.approx(60.0, rel=0.02)    # the camera's rate, not ours
+    assert r['rate'] == pytest.approx(30.0, rel=0.1)
+    assert r['proc_ms'] > 0
+    assert mon.cam_stats[-1][1]['dropped'] > 0
+
+
+def test_frame_id_gaps():
+    from cyclop.camera import AravisCamera
+    cam = object.__new__(AravisCamera)          # no hardware: exercise only the counting
+    cam.delivered = cam.dropped = 0
+    cam._last_id = None
+    for fid in (65530, 65531, 65534, 65535, 1, 3):   # 16-bit ids wrap 65535 -> 1, skipping 0
+        cam._count(fid)
+    assert (cam.delivered, cam.dropped) == (6, 3)
+    cam._count(2)                                   # out of order / restarted: not counted
+    assert cam.dropped == 3
