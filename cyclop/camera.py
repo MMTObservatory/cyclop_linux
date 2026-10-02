@@ -31,7 +31,7 @@ class AravisCamera:
     STREAM_COUNTERS = ('n_underruns', 'n_failures', 'n_missing_frames', 'n_missing_packets',
                        'n_resent_packets')
 
-    def __init__(self, address=None, exposure_us=3906.0, gain=8.80, frame_rate=None, n_buffers=32):
+    def __init__(self, address=None, exposure_us=3906.0, gain=12.5, frame_rate=None, n_buffers=32):
         import gi
         gi.require_version('Aravis', '0.8')
         from gi.repository import Aravis

@@ -10,7 +10,7 @@ max_sun_alt = -5.0
 [camera]
 address = "192.168.2.59"
 exposure_us = 3906.25        # 1/256 s
-gain = 8.80                  # dB (camera range 0-15); Windows "Gain=85"
+gain = 12.5                  # dB (camera range 0-15); peak ~140 on Polaris at 1/256 s, little saturation
 frame_rate = 132.0           # max for the 640x480 region; clipped to what each region allows
 
 [star]

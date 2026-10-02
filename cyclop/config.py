@@ -18,7 +18,7 @@ DEFAULTS = {
         'simulate': False,
         'address': '192.168.2.59',    # None/"" = first camera found
         'exposure_us': 3906.25,       # Windows "Exposure=-8" is 2**-8 s
-        'gain': 8.80,                 # dB; Windows "Gain=85" (camera raw units are ~0.1036 dB)
+        'gain': 12.5,                 # dB; chosen on sky 2026-10-02 (15 dB saturates ~40% of frames)
         'frame_rate': 132.0,          # fps; the 640x480 tracking region's maximum (clipped per region)
         'roi_width': 640,
         'roi_height': 480,
