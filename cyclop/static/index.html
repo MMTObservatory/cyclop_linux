@@ -621,18 +621,22 @@ function drawPlot() {
     } else if (activePlot === "hist") {
       const v = h.seeing.filter((v, i) => h.t[i] >= start && h.t[i] <= end && isFinite(v)).sort((a, b) => a - b);
       const med = v.length ? v[v.length >> 1] : null;
-      // bins up to the 99.5th percentile, so a few bad blocks don't squeeze the peak
-      const top = Math.max(v.length ? v[Math.min(v.length - 1, Math.floor(0.995 * v.length))] : 1, 0.5);
-      const w = niceStep(top, 40), nb = Math.ceil(top / w + 1e-9) || 1, counts = new Array(nb).fill(0);
+      // Scott's rule, as astropy's scott_bin_width: width 3.49 sigma / n^(1/3), bins from the minimum.
+      // Drawn only up to the 99.5th percentile, so a few bad blocks don't squeeze the peak.
+      const lo = v.length ? v[0] : 0, top = v.length ? v[Math.min(v.length - 1, Math.floor(0.995 * v.length))] : 1;
+      const mean = v.reduce((a, x) => a + x, 0) / (v.length || 1);
+      const sd = Math.sqrt(v.reduce((a, x) => a + (x - mean) ** 2, 0) / (v.length || 1));
+      const w = sd > 0 ? Math.cbrt(24 * Math.sqrt(Math.PI) / v.length) * sd : 0.1;
+      const nb = Math.max(1, Math.ceil((top - lo) / w + 1e-9)), counts = new Array(nb).fill(0);
       let over = 0;
-      for (const x of v) { const k = Math.floor(x / w); k < nb ? counts[k]++ : over++; }
-      const xs = counts.map((_, k) => (k + 0.5) * w), ymax = Math.max(1, ...counts) * 1.08;
+      for (const x of v) { const k = Math.floor((x - lo) / w); k < nb ? counts[k]++ : over++; }
+      const xs = counts.map((_, k) => lo + (k + 0.5) * w), ymax = Math.max(1, ...counts) * 1.08;
       plotCanvas(c, { title: "Zenith seeing histogram", xlabel: "Zenith seeing, arcsec", ylabel: "Measurements",
-        xmin: 0, xmax: nb * w, ymin: 0, ymax, ydigits: 0, xunit: '"', empty: "no seeing measurements in this range",
+        xmin: 0, xmax: lo + nb * w, ymin: 0, ymax, ydigits: 0, xunit: '"', empty: "no seeing measurements in this range",
         series: med == null ? [] : [{ x: xs, y: counts, color: "#6fa8dc", kind: "bar", width: w, name: "count", label: "zenith seeing" },
                  { x: [med, med], y: [0, ymax], color: "#e0604f", kind: "line", nohover: true, label: `median ${fmt(med)}"` }] });
       $("plotinfo").textContent = v.length ? `${v.length} points, median ${fmt(med)}"` +
-        (over ? `, ${over} above ${fmt(nb * w, 1)}" not shown` : "") : "";
+        `, bins ${fmt(w, 3)}" (Scott)` + (over ? `, ${over} above ${fmt(lo + nb * w, 1)}" not shown` : "") : "";
     } else {
       plotCanvas(c, { title: "Mean flux, for cloud monitoring", xlabel: `Time (${TZ})`, ylabel: "Flux, ADU", time: true,
         xmin: start, xmax: end, zero: true, ydigits: 0, empty: "no flux measurements in this range",
