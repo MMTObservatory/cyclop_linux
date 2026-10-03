@@ -20,6 +20,7 @@ centroid = "xcorr"           # Gaussian cross-correlation; "moments" for the old
 xcorr_sigma = 1.0            # px, ~ star FWHM / 2.355
 xcorr_reach = 10             # px searched around the last position
 xcorr_min_snr = 5.0
+column_flux_terms = [-0.0589, -0.0631, 0.0111, -0.0019]   # 4-column sensor pattern in flux; [] = off
 
 [measurement]
 n_samples = 3000

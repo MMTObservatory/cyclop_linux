@@ -194,6 +194,7 @@ class Monitor:
             ok &= c['snr'] >= st['xcorr_min_snr']
         else:
             x, y = r['x'] + x0, r['y'] + y0
+        flux = r['flux'] / star.column_flux_factor(x, st['column_flux_terms'])
         good = np.flatnonzero(ok)
         self._update_cam_stats()
         if len(good) == 0:
@@ -205,9 +206,9 @@ class Monitor:
         self.acq.center = self.pos
         self.last_valid = self.clock()
         self.star = (float(t[i]), star.Star(
-            x=self.pos[0], y=self.pos[1], flux=float(r['flux'][i]), peak=float(r['peak'][i]),
+            x=self.pos[0], y=self.pos[1], flux=float(flux[i]), peak=float(r['peak'][i]),
             fwhm=float(r['fwhm'][i]), n_saturated=int(r['n_saturated'][i]), snr=float(r['snr'][i])))
-        cols = {'t': t[good], 'x': x[good], 'y': y[good], 'fwhm': r['fwhm'][good], 'flux': r['flux'][good],
+        cols = {'t': t[good], 'x': x[good], 'y': y[good], 'fwhm': r['fwhm'][good], 'flux': flux[good],
                 'delivered': chunk.delivered[:n][good], 'dropped': chunk.dropped[:n][good]}
         smp = self.samples
         for k, v in cols.items():

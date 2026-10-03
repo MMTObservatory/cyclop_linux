@@ -189,3 +189,14 @@ def test_inliers_clip_outliers():
     keep = seeing.inliers(t, x, y)
     assert not keep[100] and not keep[2000] and keep.sum() >= 2990
     assert seeing.inliers(t, x, y, clip=None).all()
+
+
+def test_column_flux_factor():
+    x = np.linspace(1000, 1012, 49)
+    assert np.all(star.column_flux_factor(x, []) == 1.0)
+    terms = config.DEFAULTS['star']['column_flux_terms']
+    f = star.column_flux_factor(x, terms)
+    assert np.allclose(f, star.column_flux_factor(x + 4, terms))       # repeats every 4 columns
+    assert abs(f.mean() - 1) < 1e-3 and 0.05 < f.max() - 1 < 0.15
+    # one harmonic: 1 + a cos(pi x / 2) + b sin(pi x / 2)
+    assert star.column_flux_factor(1.0, [0.1, 0.2]) == pytest.approx(1.2)

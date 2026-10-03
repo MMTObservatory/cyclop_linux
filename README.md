@@ -39,6 +39,12 @@ Polaris' image motion, and publishes seeing straight to redis.
    These relations were recovered from the Windows software's own `Data.bin` history (300,000
    measurements) and reproduce its reported values to ~1e-10 given the same σ.
 
+   Flux is the background-subtracted sum around the star, corrected for a sensor pattern that
+   repeats every 4 columns: as Polaris drifted across columns the raw flux varied by ±9%, cycling
+   faster or slower with its speed in x. The correction divides each frame's flux by
+   `1 + Σ aₖ cos(kπx/2) + bₖ sin(kπx/2)` at the star's full-frame column x, with
+   `column_flux_terms = [a1, b1, a2, b2]` fitted on sky (2026-10-02/03); `[]` turns it off.
+
 4. Results go to:
    - `Seeing_Data.txt` / `Last_Seeing_Data.txt` in `output.data_dir`, in the same format as the
      Windows software;

@@ -36,6 +36,9 @@ DEFAULTS = {
         'max_fwhm': 12.0,             # px (moments, biased high); ~9 px mean at 15" zenith seeing
         'recenter_margin': 120,       # move the ROI when the star is closer than this to an edge, px
         'confirm_frames': 3,          # consecutive full-frame detections needed before tracking
+        # flux correction for the sensor's 4-column pattern, as [a1, b1, a2, b2] (see
+        # star.column_flux_factor); fitted on sky 2026-10-02/03; [] turns it off
+        'column_flux_terms': [-0.0589, -0.0631, 0.0111, -0.0019],
     },
     'measurement': {
         'n_samples': 3000,

@@ -274,3 +274,18 @@ def correlate_cube(cube, gx, gy, sigma=1.0, reach=10):
         # noise in the correlation is noise * sqrt(sum of squared 2-d weights) = noise * sum(g^2)
         'snr': (peak / (noise * float((g ** 2).sum()))).astype(float),
     }
+
+
+def column_flux_factor(x, terms):
+    """
+    Relative sensitivity at star column position(s) `x` (full-frame pixels), for dividing out of flux.
+
+    The DMK 33GP031's sensor reads columns in a pattern that repeats every 4 columns, so a star's
+    flux varies by ~+-9% as it drifts across them. `terms` = [a1, b1, a2, b2, ...] gives the
+    factor 1 + sum_k (a_k cos(k pi x / 2) + b_k sin(k pi x / 2)); empty means no correction.
+    """
+    x = np.asarray(x, dtype=float)
+    f = np.ones_like(x)
+    for k, (a, b) in enumerate(zip(terms[::2], terms[1::2]), start=1):
+        f += a * np.cos(k * np.pi * x / 2) + b * np.sin(k * np.pi * x / 2)
+    return f
