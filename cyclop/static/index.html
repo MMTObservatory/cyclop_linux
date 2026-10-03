@@ -195,6 +195,7 @@
     <nav class="tabs sub" id="plottabs">
       <button data-plot="seeing" class="active">Zenith Seeing plot</button>
       <button data-plot="flux">Flux plot</button>
+      <button data-plot="hist">Seeing histogram</button>
       <button data-plot="motion">Latest Seeing Motion Data</button>
       <button data-plot="fwhm">Latest FWHM Data</button>
     </nav>
@@ -233,6 +234,7 @@ let TZ = "UTC";
 let activeTab = "capture", activePlot = "seeing";
 let hist = null, motion = null, lastResults = -1;
 let plotRange = 43200, plotEnd = null;
+const timePlot = () => ["seeing", "flux", "hist"].includes(activePlot);   // plots of the seeing history
 
 // --- formatting -------------------------------------------------------------------------------
 const fmt = (v, d = 2) => (v === null || v === undefined || !isFinite(v)) ? "--" : Number(v).toFixed(d);
@@ -271,8 +273,7 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
 document.querySelectorAll("#plottabs button").forEach(b => b.onclick = () => {
   activePlot = b.dataset.plot;
   document.querySelectorAll("#plottabs button").forEach(x => x.classList.toggle("active", x === b));
-  const timePlot = activePlot === "seeing" || activePlot === "flux";
-  $("rangectl").hidden = !timePlot; $("motionctl").hidden = timePlot;
+  $("rangectl").hidden = !timePlot(); $("motionctl").hidden = timePlot();
   refreshTab();
 });
 document.querySelectorAll("#rangectl [data-range]").forEach(b => b.onclick = () => {
@@ -287,7 +288,7 @@ $("zoomr").onchange = () => loadZoom();
 function refreshTab() {
   if (activeTab === "capture") { frameT = null; loadFrame(); loadZoom(); }
   if (activeTab === "plots") {
-    if (activePlot === "seeing" || activePlot === "flux") loadHistory(); else loadMotion();
+    if (timePlot()) loadHistory(); else loadMotion();
   }
 }
 
@@ -381,8 +382,8 @@ function renderStatus() {
     : `no — zenith seeing ${fmt(B.zenith)}" above the ${fmt(S.max_zenith_seeing, 1)}" limit`;
 
   if (activeTab === "capture" && (!fr || fr.t !== frameT)) { loadFrame(); loadZoom(); }
-  if (activeTab === "plots" && S.n_results !== lastResults && (activePlot === "seeing" || activePlot === "flux")) loadHistory();
-  if (activeTab === "plots" && !(activePlot === "seeing" || activePlot === "flux")) drawPlot();
+  if (activeTab === "plots" && S.n_results !== lastResults && timePlot()) loadHistory();
+  if (activeTab === "plots" && !timePlot()) drawPlot();
 }
 
 function drawHist(h) {
@@ -559,6 +560,12 @@ function plotCanvas(c, o) {
         pen ? g.lineTo(x, y) : g.moveTo(x, y); pen = true;
       }
       g.stroke();
+    } else if (s.kind === "bar") {         // x = bin centres, s.width = bin width, bars from y = 0
+      for (let i = 0; i < s.x.length; i++) {
+        if (!(s.y[i] > 0)) continue;
+        const x0 = X(s.x[i] - s.width / 2), x1 = X(s.x[i] + s.width / 2);
+        g.fillRect(x0 + 1, Y(s.y[i]), Math.max(x1 - x0 - 2, 1), Y(0) - Y(s.y[i]));
+      }
     } else {
       const r = s.size || 3;
       for (let i = 0; i < s.x.length; i++) {
@@ -586,7 +593,7 @@ function drawHover(g) {
   if (!best) return;
   const [s, i] = best, x = X(s.x[i]), y = Y(s.y[i]);
   g.strokeStyle = "#ffffff"; g.lineWidth = 1.5; g.strokeRect(x - 5, y - 5, 10, 10);
-  const txt = `${o.time ? fmtTime(s.x[i]) : fmt(s.x[i], 2) + " s"}   ${s.name || ""} ${fmt(s.y[i], o.ydigits ?? 2)}`;
+  const txt = `${o.time ? fmtTime(s.x[i]) : fmt(s.x[i], 2) + (o.xunit ?? " s")}   ${s.name || ""} ${fmt(s.y[i], o.ydigits ?? 2)}`;
   g.font = `12px ${getComputedStyle(document.body).getPropertyValue("--mono")}`;
   const w = g.measureText(txt).width + 12, bx = Math.min(x + 10, PLOT.L + PLOT.pw - w), by = Math.max(y - 28, PLOT.T + 2);
   g.fillStyle = "rgba(15,20,25,.92)"; g.fillRect(bx, by, w, 20);
@@ -599,7 +606,7 @@ new ResizeObserver(() => drawPlot()).observe($("plot"));
 function drawPlot() {
   if (activeTab !== "plots") return;
   const c = $("plot");
-  if (activePlot === "seeing" || activePlot === "flux") {
+  if (timePlot()) {
     const now = S ? S.now : Date.now() / 1000, end = plotEnd ?? now, start = end - plotRange;
     const h = hist || { t: [], seeing: [], flux: [] };
     const n = h.t.filter(t => t >= start && t <= end).length;
@@ -611,6 +618,21 @@ function drawPlot() {
                  { x: h.t, y: sm, color: "#e0604f", kind: "line", gap: 900, nohover: true, label: "running median" }] });
       const inr = h.seeing.filter((v, i) => h.t[i] >= start && h.t[i] <= end).sort((a, b) => a - b);
       $("plotinfo").textContent = n ? `${n} points, median ${fmt(inr[inr.length >> 1])}"` : "";
+    } else if (activePlot === "hist") {
+      const v = h.seeing.filter((v, i) => h.t[i] >= start && h.t[i] <= end && isFinite(v)).sort((a, b) => a - b);
+      const med = v.length ? v[v.length >> 1] : null;
+      // bins up to the 99.5th percentile, so a few bad blocks don't squeeze the peak
+      const top = Math.max(v.length ? v[Math.min(v.length - 1, Math.floor(0.995 * v.length))] : 1, 0.5);
+      const w = niceStep(top, 40), nb = Math.ceil(top / w + 1e-9) || 1, counts = new Array(nb).fill(0);
+      let over = 0;
+      for (const x of v) { const k = Math.floor(x / w); k < nb ? counts[k]++ : over++; }
+      const xs = counts.map((_, k) => (k + 0.5) * w), ymax = Math.max(1, ...counts) * 1.08;
+      plotCanvas(c, { title: "Zenith seeing histogram", xlabel: "Zenith seeing, arcsec", ylabel: "Measurements",
+        xmin: 0, xmax: nb * w, ymin: 0, ymax, ydigits: 0, xunit: '"', empty: "no seeing measurements in this range",
+        series: med == null ? [] : [{ x: xs, y: counts, color: "#6fa8dc", kind: "bar", width: w, name: "count", label: "zenith seeing" },
+                 { x: [med, med], y: [0, ymax], color: "#e0604f", kind: "line", nohover: true, label: `median ${fmt(med)}"` }] });
+      $("plotinfo").textContent = v.length ? `${v.length} points, median ${fmt(med)}"` +
+        (over ? `, ${over} above ${fmt(nb * w, 1)}" not shown` : "") : "";
     } else {
       plotCanvas(c, { title: "Mean flux, for cloud monitoring", xlabel: `Time (${TZ})`, ylabel: "Flux, ADU", time: true,
         xmin: start, xmax: end, zero: true, ydigits: 0, empty: "no flux measurements in this range",
@@ -682,7 +704,7 @@ pollStatus(); pollLog();
 setInterval(pollStatus, 1000);
 setInterval(pollLog, 2000);
 setInterval(() => { if (activeTab === "plots" && (activePlot === "motion" || activePlot === "fwhm")) loadMotion(); }, 3000);
-setInterval(() => { if (activeTab === "plots" && (activePlot === "seeing" || activePlot === "flux")) loadHistory(); }, 60000);
+setInterval(() => { if (activeTab === "plots" && timePlot()) loadHistory(); }, 60000);
 </script>
 </body>
 </html>

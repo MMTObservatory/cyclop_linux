@@ -128,7 +128,8 @@ period (about 7.5 ms at the 640×480 region's maximum of 132 fps) to use every f
 - **Status**: UTC/local/sidereal time, Sun elevation, and the last local and zenith seeing and r0;
 - **Plots**: the Windows "Output results" tabs: zenith seeing and flux versus time (1h to 1M,
   history from `<data_dir>/Seeing_Data.txt` plus any `web.history_files`, such as the Windows
-  software's log), and the star motion and FWHM of the latest centroids;
+  software's log), a histogram of zenith seeing over the same range with its median, and the
+  star motion and FWHM of the latest centroids;
 - a running log at the bottom.
 
 Tabs can be linked to directly, e.g. `#status` or `#plots/motion`. The page is self-contained (no
