@@ -12,7 +12,8 @@ Polaris' image motion, and publishes seeing straight to redis.
    detected in several consecutive frames.
 2. It switches to a 640×480 region around the star and centroids every frame (132 fps), moving
    the region when the star drifts near an edge. If the star is lost for `lost_timeout` s
-   (clouds), it goes back to full-frame searching. Acquisition and analysis run in parallel: a
+   (clouds), it goes back to full-frame searching. If the camera delivers no frames at all for
+   `frame_timeout` s, or drops our control connection, it is closed and reopened. Acquisition and analysis run in parallel: a
    thread copies an 81×81 cutout around the star from each frame into chunks of up to 256 frames
    (`chunk_frames`, or `chunk_seconds`), and the main loop centroids a whole chunk at once with
    vectorized numpy (about 0.1 ms per frame) while the next one fills.

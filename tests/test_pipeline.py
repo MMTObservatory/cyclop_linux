@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from cyclop import config, star
-from cyclop.camera import SimCamera
+from cyclop.camera import CameraError, SimCamera
 from cyclop.monitor import MEASURING, Monitor
 
 
@@ -73,7 +73,7 @@ def test_monitor_handles_lost_star():
     assert mon.state == MEASURING
 
 
-def test_monitor_counts_dropped_frames():
+def test_monitor_counts_dropped_frames(caplog):
     cfg = copy.deepcopy(config.DEFAULTS)
     cfg['measurement']['n_samples'] = 1000
     cam = SimCamera(drop_fraction=0.5, seed=6)
@@ -85,6 +85,31 @@ def test_monitor_counts_dropped_frames():
     assert r['rate'] == pytest.approx(30.0, rel=0.1)
     assert r['proc_ms'] > 0
     assert mon.cam_stats[-1][1]['dropped'] > 0
+    assert "Dropped 5" in caplog.text
+
+
+def test_monitor_reopens_silent_camera(caplog):
+    cfg = copy.deepcopy(config.DEFAULTS)
+    t = {'now': 0.0}
+    cams = []
+
+    def factory():
+        cams.append(SimCamera(seed=len(cams)))
+        return cams[-1]
+
+    mon = Monitor(cfg, factory, sleep=lambda s: t.__setitem__('now', t['now'] + s),
+                  clock=lambda: t['now'])
+    mon.step(ignore_sun=True)
+    assert mon.state == MEASURING
+    cams[0].stalled = True
+    with pytest.raises(CameraError, match="No frames from the camera"):
+        while t['now'] < 60:
+            t['now'] += 1
+            mon.step(ignore_sun=True)
+    assert t['now'] < cfg['measurement']['lost_timeout']
+    # run() logs it, reopens the camera and finds the star again
+    mon.run(ignore_sun=True, should_stop=lambda: len(cams) > 1 and mon.state == MEASURING)
+    assert "No frames from the camera" in caplog.text
 
 
 def test_frame_id_gaps():

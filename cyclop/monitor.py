@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from cyclop import seeing, star, sun
-from cyclop.camera import Acquirer
+from cyclop.camera import Acquirer, CameraError
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ class Monitor:
         self.cam_stats = deque(maxlen=11)   # (clock, camera.stats()) about once a second
         self.pos = None               # last star position, full-frame pixels
         self.last_valid = None
+        self.last_frame = None        # clock() when the camera last delivered a frame while tracking
+        self._block_stats = None      # camera.stats() when the previous block finished
         self.last_search = None
         self.last_search_log = None
 
@@ -91,6 +93,7 @@ class Monitor:
             except Exception:
                 pass
         self.camera = None
+        self._block_stats = None
 
     def _start_tracking(self, x, y):
         """Centre the region of interest on (x, y) and start filling chunks around it."""
@@ -98,6 +101,7 @@ class Monitor:
         c, ms = self.cfg['camera'], self.cfg['measurement']
         w, h = c['roi_width'], c['roi_height']
         self.camera.set_region(int(x - w / 2), int(y - h / 2), w, h)
+        self.last_frame = self.clock()
         self.acq = Acquirer(self.camera, (x, y), radius=self.cfg['star']['search'],
                             chunk_frames=ms['chunk_frames'], max_seconds=ms['chunk_seconds']).start()
 
@@ -128,11 +132,12 @@ class Monitor:
             cam.set_region(0, 0, w, h)
         cam.start()
 
-        found = []
+        found, n_frames = [], 0
         for _ in range(st['confirm_frames'] + 2):
             frame = cam.grab(timeout_s=2.0)
             if frame is None:
                 continue
+            n_frames += 1
             self.frame = (frame[0], frame[1], tuple(cam.region))
             s = star.measure(frame[1], box=st['box'], min_snr=st['min_snr'])
             if not self._valid(s):
@@ -144,6 +149,9 @@ class Monitor:
             if len(found) >= st['confirm_frames']:
                 break
 
+        if n_frames == 0:
+            self._check_camera()
+            raise CameraError("No frames from the camera in a full-frame search")
         if len(found) < st['confirm_frames']:
             if self.last_search_log is None or now - self.last_search_log > 120:
                 log.info("No valid star found !")
@@ -170,8 +178,10 @@ class Monitor:
         if chunk is None or chunk.n == 0:
             if chunk is not None:
                 acq.release(chunk)
+            self._check_camera()
             self._check_lost()
             return
+        self.last_frame = self.clock()
         try:
             self._analyze(chunk)
         finally:
@@ -229,6 +239,14 @@ class Monitor:
             log.info(f"Tracking change position -> star at X={self.pos[0]:.0f} Y={self.pos[1]:.0f}")
             self._start_tracking(*self.pos)
 
+    def _check_camera(self):
+        """Raise CameraError if the camera has dropped us or gone silent, so run() reopens it."""
+        if getattr(self.camera, 'control_lost', False):
+            raise CameraError("Camera control lost")
+        silent = self.clock() - self.last_frame if self.last_frame is not None else 0
+        if self.state == MEASURING and silent > self.cfg['measurement']['frame_timeout']:
+            raise CameraError(f"No frames from the camera for {silent:.0f} s")
+
     def _check_lost(self):
         ms = self.cfg['measurement']
         if self.clock() - self.last_valid > ms['lost_timeout']:
@@ -245,6 +263,19 @@ class Monitor:
             stats = self.camera.stats()
             with self.lock:
                 self.cam_stats.append((now, stats))
+
+    def _warn_drops(self, drop_fraction):
+        """Log how the camera stream lost frames when a block dropped many of them."""
+        stats = self.camera.stats()
+        prev, self._block_stats = self._block_stats, stats
+        if drop_fraction is None or drop_fraction < self.cfg['measurement']['warn_drop_fraction']:
+            return
+        text = f"Dropped {100 * drop_fraction:.1f}% of frames"
+        counters = [k for k in stats if k.startswith('n_')]
+        if prev is not None and counters:
+            text += "; stream since the last block: " + ", ".join(
+                f"{k[2:].replace('_', ' ')} {stats[k] - prev[k]}" for k in counters)
+        log.warning(text)
 
     def _frame_stats(self, smp, span):
         """Dropped frames, camera frame rate and processing time over the block just finished."""
@@ -266,6 +297,7 @@ class Monitor:
         rest = {k: v[n:] for k, v in self.samples.items()}
         span = smp['t'][-1] - smp['t'][0]
         frames = self._frame_stats(smp, span)
+        self._warn_drops(frames['drop_fraction'])
         proc = self.proc_times
         self._reset_samples()
         if rest['t']:                 # the chunk that finished this block also starts the next
@@ -336,8 +368,11 @@ class Monitor:
                 self.step(ignore_sun=ignore_sun)
             except KeyboardInterrupt:
                 raise
-            except Exception:
-                log.exception("Camera or processing error; reopening camera in 10 s")
+            except Exception as e:
+                if isinstance(e, CameraError):
+                    log.error(f"{e}; reopening camera in 10 s")
+                else:
+                    log.exception("Camera or processing error; reopening camera in 10 s")
                 self._drop_camera()
                 self._reset_samples()
                 self.state = None

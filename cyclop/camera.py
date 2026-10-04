@@ -26,6 +26,10 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
+class CameraError(RuntimeError):
+    """The camera stopped delivering frames or no longer accepts our commands; reopen it."""
+
+
 class AravisCamera:
     # Aravis stream counters reported by stats() (reset whenever a stream is created)
     STREAM_COUNTERS = ('n_underruns', 'n_failures', 'n_missing_frames', 'n_missing_packets',
@@ -56,6 +60,9 @@ class AravisCamera:
         self.dropped = 0
         self._last_id = None
         self._stream_totals = dict.fromkeys(self.STREAM_COUNTERS, 0)
+        # set from Aravis's heartbeat thread when the camera stops accepting us as its controller
+        self.control_lost = False
+        self.cam.get_device().connect('control-lost', self._on_control_lost)
 
         self.sensor_size = tuple(self.cam.get_sensor_size())
         self._x_inc = self._increment('OffsetX', 4)
@@ -66,6 +73,10 @@ class AravisCamera:
         self.set_exposure(exposure_us)
         self.set_gain(gain)
         self.region = tuple(self.cam.get_region())
+
+    def _on_control_lost(self, device):
+        self.control_lost = True
+        log.warning("Camera control lost (heartbeat failed); the camera no longer accepts our commands")
 
     def _increment(self, feature, default):
         try:
@@ -207,6 +218,7 @@ class SimCamera:
         self.running = False
         self.t = 0.0
         self.visible = True
+        self.stalled = False                  # True: deliver nothing, like a camera that went silent
 
     def set_region(self, x, y, width, height):
         sw, sh = self.sensor_size
@@ -235,6 +247,9 @@ class SimCamera:
         return self.star_xy + self.drift * self.t
 
     def grab(self, timeout_s=1.0):
+        if self.stalled:
+            time.sleep(min(timeout_s, 0.01))
+            return None
         if self.realtime:
             time.sleep(1.0 / self.frame_rate)
         self.t += 1.0 / self.frame_rate
