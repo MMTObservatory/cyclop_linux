@@ -55,7 +55,7 @@ class Monitor:
 
     def _reset_samples(self):
         # per sample; delivered/dropped are the camera's running frame counts
-        self.samples = {k: [] for k in ('t', 'x', 'y', 'fwhm', 'flux', 'delivered', 'dropped')}
+        self.samples = {k: [] for k in ('t', 'x', 'y', 'fwhm', 'flux', 'background', 'delivered', 'dropped')}
         self.proc_times = []          # (seconds, frames) of analysis for each chunk
 
     def _set_state(self, state):
@@ -209,6 +209,7 @@ class Monitor:
             x=self.pos[0], y=self.pos[1], flux=float(flux[i]), peak=float(r['peak'][i]),
             fwhm=float(r['fwhm'][i]), n_saturated=int(r['n_saturated'][i]), snr=float(r['snr'][i])))
         cols = {'t': t[good], 'x': x[good], 'y': y[good], 'fwhm': r['fwhm'][good], 'flux': flux[good],
+                'background': r['background'][good],
                 'delivered': chunk.delivered[:n][good], 'dropped': chunk.dropped[:n][good]}
         smp = self.samples
         for k, v in cols.items():
@@ -279,7 +280,8 @@ class Monitor:
         r = seeing.compute(smp['t'], smp['x'], smp['y'], lat, detrend=ms['detrend'])
         flux = float(np.mean(smp['flux']))
         accepted = r['zenith'] <= self.cfg['measurement']['max_zenith_seeing']
-        r.update(flux=flux, fwhm=float(np.mean(smp['fwhm'])), rate=rate, time=t_end, accepted=accepted,
+        r.update(flux=flux, background=float(np.mean(smp['background'])), fwhm=float(np.mean(smp['fwhm'])),
+                 rate=rate, time=t_end, accepted=accepted,
                  n_clipped=n_clipped, **frames)
         with self.lock:
             self.results.append(r)
@@ -291,7 +293,8 @@ class Monitor:
             return
         log.info(f"Seeing Zen. Ok : {r['zenith']:.2f} arcsec (local {r['local']:.2f}, "
                  f"sigma {r['sigma_x']:.3f}/{r['sigma_y']:.3f} px, fwhm {r['fwhm']:.2f} px, "
-                 f"flux {flux:.0f}, {rate:.1f} fps, {n_clipped} clipped{self._drop_text(r)})")
+                 f"flux {flux:.0f}, bg {r['background']:.2f}, {rate:.1f} fps, "
+                 f"{n_clipped} clipped{self._drop_text(r)})")
         if self.writer:
             self.writer.write(t_end, flux, r, samples=smp)
         if self.publisher:

@@ -138,8 +138,8 @@ def measure_cube(cube, box=10, min_snr=10.0, saturation=255):
 
     Returns
     -------
-    dict of length-n arrays: x, y (cutout pixel coordinates), flux, peak, fwhm, n_saturated, snr,
-    and `ok`, False where `measure` would have returned None. The centroiding box is kept inside
+    dict of length-n arrays: x, y (cutout pixel coordinates), flux, background (the level subtracted
+    from flux, in ADU per pixel), peak, fwhm, n_saturated, snr, and `ok`, False where `measure` would have returned None. The centroiding box is kept inside
     the cutout rather than truncated at its edge; otherwise the arithmetic is the same.
     """
     n, h, w = cube.shape
@@ -163,7 +163,8 @@ def measure_cube(cube, box=10, min_snr=10.0, saturation=255):
     cut = a[np.arange(n)[:, None, None], rows, cols]                # (n, b, b)
 
     border = np.concatenate([cut[:, 0], cut[:, -1], cut[:, 1:-1, 0], cut[:, 1:-1, -1]], axis=1)
-    s = cut - np.median(border, axis=1)[:, None, None]
+    sky = np.median(border, axis=1)
+    s = cut - sky[:, None, None]
     peak = s.reshape(n, -1).max(axis=1)
     snr = peak / noise
     thr = np.maximum(3 * noise, 0.1 * peak)
@@ -183,6 +184,7 @@ def measure_cube(cube, box=10, min_snr=10.0, saturation=255):
     return {
         'x': cx, 'y': cy,
         'flux': s.sum(axis=(1, 2)).astype(float),
+        'background': sky.astype(float),
         'peak': peak.astype(float),
         'fwhm': fwhm,
         'n_saturated': (cut >= saturation).sum(axis=(1, 2)),

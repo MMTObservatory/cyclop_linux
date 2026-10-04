@@ -112,6 +112,7 @@ def test_measure_cube_matches_measure():
     # blank frames (clouds) must come back as not ok, like measure returning None
     cube[::10] = np.random.default_rng(0).normal(12, 2, cube[::10].shape).clip(0, 255)
     res = star.measure_cube(cube)
+    assert res['background'][10] == pytest.approx(12, abs=1)
     for i, c in enumerate(cube):
         s = star.measure(c)
         assert res['ok'][i] == (s is not None)
