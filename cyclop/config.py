@@ -46,6 +46,8 @@ DEFAULTS = {
         'detrend': 1,                 # polynomial degree removed from x(t), y(t)
         'clip': 5.0,                  # drop samples this many robust sigmas out; 0 keeps all
         'lost_timeout': 30.0,         # s without a valid centroid before searching full frame again
+        'min_valid_fraction': 0.05,   # star lost if fewer frames than this are valid over lost_timeout
+                                      # (real star >= 7% even under clouds; noise spikes alone ~3%)
         'frame_timeout': 5.0,         # s without any frame from the camera before reopening it
         'warn_drop_fraction': 0.02,   # log the stream counters when a block drops more frames than this
         'search_interval': 10.0,      # s between full-frame search attempts

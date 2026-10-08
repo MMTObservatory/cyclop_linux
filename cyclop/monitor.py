@@ -48,6 +48,8 @@ class Monitor:
         self.cam_stats = deque(maxlen=11)   # (clock, camera.stats()) about once a second
         self.pos = None               # last star position, full-frame pixels
         self.last_valid = None
+        self.valid_counts = deque()   # (clock, frames, valid frames) per chunk over lost_timeout
+        self.valid_since = None       # clock() when tracking started
         self.last_frame = None        # clock() when the camera last delivered a frame while tracking
         self._block_stats = None      # camera.stats() when the previous block finished
         self.last_search = None
@@ -167,7 +169,8 @@ class Monitor:
         self.star = (frame[0], s)
         self._start_tracking(s.x, s.y)
         self._reset_samples()
-        self.last_valid = self.clock()
+        self.last_valid = self.valid_since = self.clock()
+        self.valid_counts.clear()
         self.last_search_log = None
         self._set_state(MEASURING)
 
@@ -207,8 +210,8 @@ class Monitor:
         flux = r['flux'] / star.column_flux_factor(x, st['column_flux_terms'])
         good = np.flatnonzero(ok)
         self._update_cam_stats()
-        if len(good) == 0:
-            self._check_lost()
+        self.valid_counts.append((self.clock(), n, len(good)))
+        if self._check_lost() or len(good) == 0:
             return
 
         i = good[-1]
@@ -247,15 +250,34 @@ class Monitor:
         if self.state == MEASURING and silent > self.cfg['measurement']['frame_timeout']:
             raise CameraError(f"No frames from the camera for {silent:.0f} s")
 
+    def _valid_fraction(self):
+        """Fraction of frames with a valid centroid over the last lost_timeout s; None until tracked that long."""
+        now, window = self.clock(), self.cfg['measurement']['lost_timeout']
+        while self.valid_counts and now - self.valid_counts[0][0] > window:
+            self.valid_counts.popleft()
+        frames = sum(c[1] for c in self.valid_counts)
+        if now - self.valid_since < window or frames == 0:
+            return None
+        return sum(c[2] for c in self.valid_counts) / frames
+
     def _check_lost(self):
+        """Go back to searching the full frame if the star has gone; returns True if it has."""
         ms = self.cfg['measurement']
-        if self.clock() - self.last_valid > ms['lost_timeout']:
-            log.info(f"Star likely hidden by clouds (last valid measurement "
-                     f"{self.clock() - self.last_valid:.0f} s ago), searching full frame")
-            self._stop_tracking()
-            self._reset_samples()
-            self.last_search = None
-            self._set_state(SEARCHING)
+        silent = self.clock() - self.last_valid
+        frac = self._valid_fraction()
+        if silent > ms['lost_timeout']:
+            why = f"last valid measurement {silent:.0f} s ago"
+        elif frac is not None and frac < ms['min_valid_fraction']:
+            # noise spikes and flickering pixels alone pass a few % of frames
+            why = f"only {100 * frac:.1f}% of frames valid over the last {ms['lost_timeout']:.0f} s"
+        else:
+            return False
+        log.info(f"Star likely hidden by clouds ({why}), searching full frame")
+        self._stop_tracking()
+        self._reset_samples()
+        self.last_search = None
+        self._set_state(SEARCHING)
+        return True
 
     def _update_cam_stats(self):
         now = self.clock()

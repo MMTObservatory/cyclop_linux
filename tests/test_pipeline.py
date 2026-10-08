@@ -1,4 +1,5 @@
 import copy
+import logging
 
 import numpy as np
 import pytest
@@ -71,6 +72,34 @@ def test_monitor_handles_lost_star():
     for _ in range(40):
         mon.step(ignore_sun=True)
     assert mon.state == MEASURING
+
+
+def test_monitor_drops_star_seen_in_few_frames(caplog):
+    # under thick cloud only noise spikes pass, a few % of frames, which keeps last_valid fresh
+    caplog.set_level(logging.INFO)
+    cfg = copy.deepcopy(config.DEFAULTS)
+    cfg['measurement']['chunk_seconds'] = 0.25
+    t = {'now': 0.0}
+    cam = SimCamera(seed=9)
+    mon = Monitor(cfg, lambda: cam, sleep=lambda s: t.__setitem__('now', t['now'] + s),
+                  clock=lambda: t['now'])
+    mon.step(ignore_sun=True)
+    assert mon.state == MEASURING
+    rng = np.random.default_rng(9)
+    grab = cam.grab
+
+    def flicker(*args, **kwargs):
+        cam.visible = rng.random() < 0.02
+        return grab(*args, **kwargs)
+
+    cam.grab = flicker
+    while mon.state == MEASURING and t['now'] < 60:
+        t['now'] += 1
+        mon.step(ignore_sun=True)
+    assert mon.state != MEASURING
+    assert t['now'] < 45
+    assert "% of frames valid" in caplog.text
+    assert not mon.results
 
 
 def test_monitor_counts_dropped_frames(caplog):
