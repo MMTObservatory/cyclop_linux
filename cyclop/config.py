@@ -21,6 +21,7 @@ DEFAULTS = {
         'gain': 12.5,                 # dB; chosen on sky 2026-10-02 (15 dB saturates ~40% of frames)
         'frame_rate': 132.0,          # fps; the 640x480 tracking region's maximum (clipped per region)
         'n_buffers': 128,             # frame buffers queued with Aravis (~0.3 MB each at 640x480)
+        'buffer_mb': 64.0,            # at most this much buffer memory (full frame: ~13 buffers of 5 MB)
         'socket_buffer_mb': 8.0,      # UDP receive buffer; raise net.core.rmem_max to allow it
         'roi_width': 640,
         'roi_height': 480,
